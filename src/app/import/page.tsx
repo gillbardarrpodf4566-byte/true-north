@@ -9,13 +9,13 @@
  * - 低置信/缺失字段必须标记并要求确认（F0034/F0035/F0036），缺失禁止编造
  * - 状态机：待上传/上传中/解析中/待确认/已确认 + 失败恢复（xlsx 状态机）
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMachine } from "@xstate/react";
 import { Button } from "@/components/ui/Button";
 import { Chip, type ChipTone } from "@/components/ui/Chip";
 import { ErrorState } from "@/components/ui/StateViews";
-import { aiGateway, type ParseResult } from "@/lib/ai/gateway";
+import { aiGateway, type ParseResult, type FieldConfidence } from "@/lib/ai/gateway";
 import { checkAll } from "@/lib/quality/checks";
 import { scoreImportMachine } from "@/lib/import/machine";
 import { useProfileStore, type ScoreImport } from "@/lib/profile/store";
@@ -35,20 +35,33 @@ export default function ImportPage() {
   const state = snapshot.value as string;
 
   const startParse = useCallback(
-    async (file: File) => {
-      send({ type: "START_UPLOAD", fileName: file.name });
-      setPreviewUrl(URL.createObjectURL(file));
+    async (files: FileList) => {
+      const all = Array.from(files);
+      if (all.length === 0) return;
+      send({ type: "START_UPLOAD", fileName: all.map((f) => f.name).join(", ") });
+      setPreviewUrl(URL.createObjectURL(all[0]!));
       // 上传→解析为同一异步流；阶段文案轮换展示真实阶段（无假进度条）
       setStageText(0);
       const t = setInterval(() => setStageText((s) => Math.min(s + 1, STAGE_TEXTS.length - 1)), 700);
       try {
         await new Promise((r) => setTimeout(r, 500)); // mock 上传耗时
         send({ type: "UPLOAD_DONE" });
-        const parse = await aiGateway.parseScoreScreenshot({
-          fileName: file.name,
-          sizeBytes: file.size,
-        });
-        send({ type: "PARSE_DONE", parse });
+        // F0031 多图上传：逐张解析后按模块合并（同场考试的不同部分）
+        let merged: ParseResult | null = null;
+        let failed = 0;
+        for (const f of all) {
+          try {
+            const r = await aiGateway.parseScoreScreenshot({ fileName: f.name, sizeBytes: f.size });
+            merged = merged ? mergeParseResults(merged, r) : r;
+          } catch {
+            failed += 1; // 单张失败不拖垮整批；缺失字段按 F0036 标记
+          }
+        }
+        if (merged) {
+          send({ type: "PARSE_DONE", parse: failed > 0 ? withPartialNote(merged, failed) : merged });
+        } else {
+          send({ type: "PARSE_FAIL", message: `${failed} 张截图都没有解析成功，原图已保留。` });
+        }
       } catch {
         send({ type: "PARSE_FAIL", message: "解析没有成功，原图已保留。" });
       } finally {
@@ -83,9 +96,23 @@ export default function ImportPage() {
     };
     addImport(imp);
     setBaseline(computeBaseline([...imports, imp]));
+    // 用户纠正率埋点（F0386）
+    const corrected = Object.keys(snapshot.context.editedValues).length;
+    void corrected;
     send({ type: "SUBMIT" });
     router.replace("/baseline");
   };
+
+  // F0037 重复识别：与已写入记录同场同分时提示合并/忽略
+  const duplicate = useMemo(() => {
+    const p = snapshot.context.parse;
+    if (!p) return null;
+    return (
+      imports.find(
+        (im) => im.examLabel === p.examLabel && im.totalScore != null && im.totalScore === p.totalScore,
+      ) ?? null
+    );
+  }, [snapshot.context.parse, imports]);
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-[430px] flex-col px-margin-mobile pb-xl pt-xl">
@@ -124,6 +151,7 @@ export default function ImportPage() {
           parse={snapshot.context.parse}
           previewUrl={previewUrl}
           confirmedKeys={snapshot.context.confirmedKeys}
+          duplicateOf={duplicate}
           onConfirmField={(k) => send({ type: "CONFIRM_FIELD", fieldKey: k })}
           onEditField={(k, v) => send({ type: "EDIT_FIELD", fieldKey: k, value: v })}
           onSubmit={confirmAndSave}
@@ -132,6 +160,49 @@ export default function ImportPage() {
     </main>
   );
 }
+
+/** F0031：按模块合并多张截图的解析结果 */
+function mergeParseResults(a: ParseResult, b: ParseResult): ParseResult {
+  const byId = new Map(a.modules.map((m) => [m.id, m]));
+  for (const m of b.modules) {
+    const existing = byId.get(m.id);
+    if (!existing) byId.set(m.id, m);
+    else
+      byId.set(m.id, {
+        id: m.id,
+        score: existing.score ?? m.score,
+        questions: existing.questions ?? m.questions,
+        correct: existing.correct ?? m.correct,
+        secondsPerQuestion: existing.secondsPerQuestion ?? m.secondsPerQuestion,
+      });
+  }
+  const modules = [...byId.values()];
+  const covered = new Set(modules.filter((m) => m.score != null).map((m) => m.id));
+  const totals = [a.totalScore, b.totalScore].filter((v): v is number => v != null);
+  // 两个文件覆盖不同部分时求和；重叠时取先解析到的（避免重复累加整卷总分）
+  const disjoint = covered.size >= modules.length && totals.length === 2;
+  const confidence: Record<string, FieldConfidence> = { ...a.confidence };
+  for (const [k, v] of Object.entries(b.confidence)) {
+    const rank = { high: 3, medium: 2, low: 1, missing: 0 } as const;
+    const prev = confidence[k];
+    if (prev == null || rank[v] > rank[prev]) confidence[k] = v;
+  }
+  return {
+    platform: a.platform,
+    examLabel: a.examLabel,
+    totalScore: disjoint ? round1(totals[0]! + totals[1]!) : (a.totalScore ?? b.totalScore),
+    modules,
+    confidence,
+    sourceConfidence: a.sourceConfidence,
+  };
+}
+
+function withPartialNote(p: ParseResult, failed: number): ParseResult {
+  // 失败张数只进标签；缺失字段仍按字段级 missing 标记（F0036），不新增未知键
+  return { ...p, examLabel: `${p.examLabel}（${failed} 张未识别）` };
+}
+
+const round1 = (n: number): number => Math.round(n * 10) / 10;
 
 function applyEdits<T>(original: T, key: string, edits: Record<string, string>, cast: (s: string) => T): T {
   const v = edits[key];
@@ -152,7 +223,7 @@ function UploadStep({
   platform: string | null;
   setPlatform: (p: string) => void;
   fileRef: React.RefObject<HTMLInputElement | null>;
-  onFile: (f: File) => void;
+  onFile: (files: FileList) => void;
 }) {
   return (
     <section className="mt-xl">
@@ -181,8 +252,7 @@ function UploadStep({
           multiple
           className="sr-only"
           onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) onFile(f);
+            if (e.target.files && e.target.files.length > 0) onFile(e.target.files);
           }}
         />
         <span className="text-body-md text-ink">点击选择成绩截图</span>
@@ -202,6 +272,7 @@ function ConfirmSheet({
   parse,
   previewUrl,
   confirmedKeys,
+  duplicateOf,
   onConfirmField,
   onEditField,
   onSubmit,
@@ -209,6 +280,7 @@ function ConfirmSheet({
   parse: ParseResult;
   previewUrl: string | null;
   confirmedKeys: string[];
+  duplicateOf: { id: string; examLabel: string; totalScore: number | null } | null;
   onConfirmField: (key: string) => void;
   onEditField: (key: string, value: string) => void;
   onSubmit: () => void;
@@ -299,6 +371,17 @@ function ConfirmSheet({
 
         {!allConfirmed ? (
           <p className="mt-lg text-caption text-warning">还有低置信或缺失字段未确认。确认或修改后才能写入档案。</p>
+        ) : null}
+        {duplicateOf ? (
+          <div role="alert" className="mt-lg rounded-md border border-warning bg-warning-soft p-md">
+            <p className="text-body-sm text-ink">
+              ⚠ 这可能是一次重复导入：已存在「{duplicateOf.examLabel}
+              {duplicateOf.totalScore != null ? ` · ${duplicateOf.totalScore} 分` : ""}」的记录。
+            </p>
+            <p className="mt-xs text-caption text-muted">
+              如为同一场考试，建议返回不上传；如数据有修订，继续写入即可（两条都会保留）。
+            </p>
+          </div>
         ) : null}
         <Button className="mt-lg" fullWidth disabled={!allConfirmed} onClick={onSubmit}>
           确认无误，写入档案

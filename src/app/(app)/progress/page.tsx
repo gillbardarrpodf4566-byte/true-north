@@ -15,7 +15,7 @@ import { useProfileStore } from "@/lib/profile/store";
 import { MODULES, TOTAL_FULL_SCORE } from "@/lib/profile/types";
 
 export default function ProgressPage() {
-  const { imports, baseline, profile } = useProfileStore();
+  const { imports, baseline, profile, taskResults, sessions, prescription } = useProfileStore();
 
   const exams = useMemo(
     () =>
@@ -56,6 +56,24 @@ export default function ProgressPage() {
   }).filter((s) => s.points.length >= 2);
 
   const latestModules = exams[exams.length - 1]?.modules ?? [];
+
+  // F0280 训练量：来自任务完成记录；未关联任务的会话只计时长与题量
+  const trainStats = (() => {
+    const minutes = taskResults.reduce((s, r) => s + r.minutes, 0);
+    const questions =
+      taskResults.reduce((s, r) => s + (r.questions ?? 0), 0) +
+      sessions.filter((s2) => s2.taskId == null).length * 8;
+    const doneTasks = taskResults.length;
+    const completionRate =
+      prescription == null || prescription.tasks.length === 0
+        ? 100
+        : Math.round((doneTasks / prescription.tasks.length) * 100);
+    return {
+      minutes,
+      questions: Math.max(questions, doneTasks * 5),
+      completionRate: Math.min(100, completionRate),
+    };
+  })();
 
   if (exams.length === 0 && !baseline) {
     return (
@@ -147,6 +165,53 @@ export default function ProgressPage() {
           </Card>
         ) : null}
 
+        {/* F0280 训练量趋势：有效时长 / 题量 / 完成率 */}
+        <Card>
+          <p className="text-label-md text-muted">训练投入（全部记录）</p>
+          <div className="mt-sm grid grid-cols-3 gap-sm text-center">
+            <div>
+              <p className="text-stat-md text-ink">{trainStats.minutes}</p>
+              <p className="text-caption text-muted">有效训练分钟</p>
+            </div>
+            <div>
+              <p className="text-stat-md text-ink">{trainStats.questions}</p>
+              <p className="text-caption text-muted">作答题数</p>
+            </div>
+            <div>
+              <p className="text-stat-md text-ink">{trainStats.completionRate}%</p>
+              <p className="text-caption text-muted">任务完成率</p>
+            </div>
+          </div>
+        </Card>
+
+        {/* F0122 阶段路线图 */}
+        {profile.goal && profile.conditions ? (
+          <Card>
+            <p className="text-label-md text-muted">阶段路线图</p>
+            <ol className="mt-md space-y-sm">
+              {stageRoadmap(profile.conditions.stage, profile.goal.examDate).map((s, i) => (
+                <li key={s.name} className="flex items-center gap-md">
+                  <span
+                    className={`flex h-6 w-6 items-center justify-center rounded-full text-caption ${
+                      s.current
+                        ? "bg-primary text-on-primary"
+                        : i < stageIndex(profile.conditions!.stage)
+                          ? "bg-primary-soft text-primary-active"
+                          : "bg-surface-strong text-muted"
+                    }`}
+                  >
+                    {i + 1}
+                  </span>
+                  <span className={`text-body-sm ${s.current ? "text-ink" : "text-body"}`}>
+                    {s.name}
+                    <span className="ml-sm text-caption text-muted">{s.note}</span>
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </Card>
+        ) : null}
+
         <Card className="text-center">
           <Link href="/progress/weekly" className="text-label-md text-primary">
             查看本周复盘 ›
@@ -155,6 +220,29 @@ export default function ProgressPage() {
       </div>
     </main>
   );
+}
+
+function stageRoadmap(stage: string, examDate: string): Array<{ name: string; note: string; current: boolean }> {
+  const days = Math.max(
+    0,
+    Math.ceil((new Date(examDate).getTime() - Date.now()) / 86_400_000),
+  );
+  const stages = [
+    { name: "基础建立", note: "概念与常用方法过一遍" },
+    { name: "强化", note: "专项与错因修复为主" },
+    { name: "模考期", note: "整卷节奏与策略实验" },
+    { name: "冲刺", note: "只做高收益项与状态维持" },
+  ];
+  const idx = stageIndex(stage);
+  return stages.map((s, i) => ({
+    ...s,
+    note: i === idx ? `当前 · 距考试 ${days} 天` : s.note,
+    current: i === idx,
+  }));
+}
+
+function stageIndex(stage: string): number {
+  return ["零基础", "基础", "强化", "冲刺"].indexOf(stage);
 }
 
 function labelOf(iso: string): string {

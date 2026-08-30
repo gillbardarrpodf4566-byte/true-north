@@ -44,6 +44,8 @@ export default function SessionPage() {
     upsertImport,
     setBaseline,
     baseline,
+    favorites,
+    toggleFavorite,
   } = useProfileStore();
 
   const [phase, setPhase] = useState<Phase>("intro");
@@ -54,6 +56,8 @@ export default function SessionPage() {
   const [wrongIds, setWrongIds] = useState<string[]>([]);
   const [totalSeconds, setTotalSeconds] = useState(0);
   const [hintOpen, setHintOpen] = useState(false);
+  /** 提示阶梯（F0166–F0169）：0 收起 → 1 提问定位（先问后讲）→ 2 策略提示 */
+  const [hintLevel, setHintLevel] = useState<0 | 1 | 2>(0);
   const qStart = useRef<number>(Date.now());
   const tick = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -248,6 +252,7 @@ export default function SessionPage() {
     setChoice(null);
     setSubmitted(false);
     setHintOpen(false);
+    setHintLevel(0);
     qStart.current = Date.now();
     if (index + 1 >= questions.length) {
       finish();
@@ -263,6 +268,7 @@ export default function SessionPage() {
     setChoice(null);
     setSubmitted(false);
     setHintOpen(false);
+    setHintLevel(0);
     qStart.current = Date.now();
     if (index + 1 >= questions.length) {
       finish();
@@ -484,8 +490,22 @@ export default function SessionPage() {
       {/* 工具（§11.6：AI 提示为 secondary，不漂浮） */}
       {!submitted ? (
         <div className="mt-lg flex items-center gap-md">
-          <Button variant="tertiary" onClick={() => setHintOpen((v) => !v)} aria-expanded={hintOpen}>
+          <Button
+            variant="tertiary"
+            onClick={() => {
+              setHintOpen(true);
+              setHintLevel((l) => (l === 0 ? 1 : l === 1 ? 2 : 2));
+            }}
+            aria-expanded={hintOpen}
+          >
             AI 提示
+          </Button>
+          <Button
+            variant="tertiary"
+            onClick={() => toggleFavorite(q.id)}
+            aria-pressed={favorites.includes(q.id)}
+          >
+            {favorites.includes(q.id) ? "已收藏" : "收藏"}
           </Button>
           <Button variant="tertiary" onClick={skipQuestion}>
             跳过，稍后回看
@@ -496,10 +516,20 @@ export default function SessionPage() {
           </Button>
         </div>
       ) : null}
+      {/* 提示阶梯（F0166 先问后讲 / F0167 分级 / F0168 首轮不给答案）：L1 提问定位 → L2 策略；完整讲解在提交后的解析里（F0169） */}
       {hintOpen && !submitted ? (
-        <p className="mt-sm rounded-md bg-surface-soft p-md text-body-sm text-body">
-          提示：先确认这道题考的是「{q.knowledgePoint}」，再决定用哪条路径。
-        </p>
+        <div className="mt-sm space-y-sm">
+          {hintLevel >= 1 ? (
+            <p className="rounded-md bg-surface-soft p-md text-body-sm text-body">
+              先想一下：这道题真正问的是「{q.knowledgePoint}」里的哪一个量？你在材料里定位到哪一行了？
+            </p>
+          ) : null}
+          {hintLevel >= 2 ? (
+            <p className="rounded-md bg-surface-soft p-md text-body-sm text-body">
+              策略提示：这道题用「{q.skillTarget}」的常规路径最稳；先列式再代入，别急着精算。
+            </p>
+          ) : null}
+        </div>
       ) : null}
 
       {/* 反馈（§8.13：错因区从下方展开） */}

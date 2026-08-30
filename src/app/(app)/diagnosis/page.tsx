@@ -20,7 +20,7 @@ import { buildPrescription, todayBudget } from "@/lib/prescription/engine";
 
 export default function DiagnosisPage() {
   const router = useRouter();
-  const { baseline, profile, diagnosis, setDiagnosis, setPrescription, todayMinutesOverride } =
+  const { baseline, profile, diagnosis, setDiagnosis, setPrescription, todayMinutesOverride, aiFeedback, addAiFeedback } =
     useProfileStore();
 
   // F0081 导入新模考后自动生成诊断候选：基线在但诊断缺失/过期时重算
@@ -59,6 +59,17 @@ export default function DiagnosisPage() {
     router.push("/today");
   };
 
+  // F0082 手动诊断：用户主动重新生成当前阶段诊断
+  const reDiagnose = (): void => {
+    setDiagnosis(diagnose(baseline, profile.goal, profile.conditions, new Date()));
+  };
+
+  // F0319/F0178：AI 结果反馈（进入质量评测闭环 CL-10）
+  const giveFeedback = (helpful: boolean): void => {
+    addAiFeedback({ target: `diagnosis:${diagnosis.generatedAt}`, helpful, reported: false, reason: "" });
+  };
+  const feedbackGiven = aiFeedback.some((f) => f.target === `diagnosis:${diagnosis.generatedAt}`);
+
   const bars = diagnosis.opportunities.map((o, i) => ({
     label: `${o.moduleId} · ${o.kind}`,
     value: o.estimatedGain,
@@ -76,6 +87,25 @@ export default function DiagnosisPage() {
             {diagnosis.provisional ? "候选结论 · 证据不足" : `置信度 ${diagnosis.confidence}`}
           </Chip>
           <span className="text-caption text-muted">{baseline.dataNote}</span>
+          <Button variant="tertiary" onClick={reDiagnose} className="ml-auto">
+            重新诊断
+          </Button>
+        </div>
+        {/* F0319：对诊断结论本身的反馈 */}
+        <div className="mt-sm flex items-center gap-sm">
+          <span className="text-caption text-muted">这个判断对你有帮助吗？</span>
+          {feedbackGiven ? (
+            <span className="text-caption text-success">已记录，谢谢。</span>
+          ) : (
+            <>
+              <Button variant="tertiary" onClick={() => giveFeedback(true)}>
+                有帮助
+              </Button>
+              <Button variant="tertiary" onClick={() => giveFeedback(false)}>
+                没帮助
+              </Button>
+            </>
+          )}
         </div>
       </header>
 

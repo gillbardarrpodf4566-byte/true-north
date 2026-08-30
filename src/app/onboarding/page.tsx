@@ -11,7 +11,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { SegmentProgress } from "@/components/ui/Progress";
 import { useProfileStore } from "@/lib/profile/store";
-import type { ExamType, Stage } from "@/lib/profile/types";
+import type { ExamType, ModuleId, Stage } from "@/lib/profile/types";
+import { MODULES } from "@/lib/profile/types";
 import { duration } from "@/design/tokens";
 
 const TOTAL_SEGMENTS = 5;
@@ -32,9 +33,15 @@ export default function OnboardingPage() {
   const [region, setRegion] = useState("");
   const [examDate, setExamDate] = useState("");
   const [targetTotal, setTargetTotal] = useState("");
+  /** F0018 分模块目标（可选） */
+  const [targetModules, setTargetModules] = useState<Record<string, string>>({});
   const [weekday, setWeekday] = useState<number | null>(null);
   const [weekend, setWeekend] = useState<number | null>(null);
+  /** F0021 固定时段（可选） */
+  const [timeWindows, setTimeWindows] = useState("");
   const [stage, setStage] = useState<Stage | null>(null);
+  /** F0024 薄弱自评（可选） */
+  const [weakModules, setWeakModules] = useState<ModuleId[]>([]);
 
   const segment = useMemo(() => {
     if (step === 0) return 1;
@@ -72,21 +79,45 @@ export default function OnboardingPage() {
       setAgreements({ userAgreement: agreeUser, aiBoundary: agreeAi });
       setGoal({
         type: type!,
-        examName: examName.trim(),
-        region: region.trim(),
-        examDate,
-        targetTotal: Number(targetTotal),
-        targetModules: {},
+        examName: examName.trim() || "批次待定",
+        region: region.trim() || "地区待定",
+        examDate: examDate || defaultExamDate(),
+        targetTotal: Number(targetTotal) > 0 ? Number(targetTotal) : 105,
+        targetModules: Object.fromEntries(
+          Object.entries(targetModules)
+            .filter(([, v]) => v !== "")
+            .map(([k, v]) => [k, Number(v)]),
+        ),
       });
       setConditions({
-        weekdayMinutes: weekday!,
-        weekendMinutes: weekend!,
-        stage: stage!,
-        selfWeakModules: [],
+        weekdayMinutes: weekday ?? 60,
+        weekendMinutes: weekend ?? 120,
+        stage: stage ?? "基础",
+        timeWindows: timeWindows.trim() || undefined,
+        selfWeakModules: weakModules,
       });
     }
     setStep((s) => s + 1);
   };
+
+  /** F0012 跳过非必要步骤：用占位值推进，稍后在「我的」补充 */
+  const skip = (): void => {
+    if (step >= 2 && step <= 6) {
+      if (step === 3 && !examDate) setExamDate(defaultExamDate());
+      if (step === 4 && targetTotal === "") setTargetTotal("105");
+      if (step === 5 && weekday == null) {
+        setWeekday(60);
+        setWeekend(120);
+      }
+      if (step === 6 && stage == null) setStage("基础");
+    }
+    setStep((s) => s + 1);
+  };
+
+  function defaultExamDate(): string {
+    const d = new Date(Date.now() + 90 * 86_400_000);
+    return d.toISOString().slice(0, 10);
+  }
 
   useEffect(() => {
     if (step === 7) {
@@ -115,10 +146,16 @@ export default function OnboardingPage() {
             setExamDate,
             targetTotal,
             setTargetTotal,
+            targetModules,
+            setTargetModules,
             weekday,
             setWeekday,
             weekend,
             setWeekend,
+            timeWindows,
+            setTimeWindows,
+            weakModules,
+            setWeakModules,
             stage,
             setStage,
           }}
@@ -134,6 +171,16 @@ export default function OnboardingPage() {
           <Button fullWidth onClick={next} disabled={!canNext()}>
             {step === 6 ? "完成建档" : "下一步"}
           </Button>
+          {/* F0012 跳过策略：第 3–7 屏可跳过（协议与考试类型必填） */}
+          {step >= 2 && step <= 6 ? (
+            <button
+              type="button"
+              onClick={skip}
+              className="mt-sm w-full text-center text-caption text-muted underline-offset-2 hover:underline"
+            >
+              跳过这一步（先占位，稍后在「我的」补充）
+            </button>
+          ) : null}
         </div>
       ) : null}
     </main>
@@ -155,10 +202,16 @@ interface Fields {
   setExamDate: (v: string) => void;
   targetTotal: string;
   setTargetTotal: (v: string) => void;
+  targetModules: Record<string, string>;
+  setTargetModules: (v: Record<string, string>) => void;
   weekday: number | null;
   setWeekday: (v: number) => void;
   weekend: number | null;
   setWeekend: (v: number) => void;
+  timeWindows: string;
+  setTimeWindows: (v: string) => void;
+  weakModules: ModuleId[];
+  setWeakModules: (v: ModuleId[]) => void;
   stage: Stage | null;
   setStage: (v: Stage) => void;
 }
@@ -177,6 +230,14 @@ function StepBody({ step, fields }: { step: number; fields: Fields }) {
           <p className="mt-lg text-body-md text-body">
             见岸根据你的真实训练持续校准，告诉你此刻最值得解决的问题。它不是题库，也不承诺押题。
           </p>
+          {/* F0011 使用方式：一条闭环讲清楚 */}
+          <div className="mt-lg flex items-center gap-xs text-caption text-muted" aria-label="使用闭环">
+            <span className="rounded-full bg-surface-soft px-sm py-xxs">诊断</span>→
+            <span className="rounded-full bg-surface-soft px-sm py-xxs">处方</span>→
+            <span className="rounded-full bg-surface-soft px-sm py-xxs">训练</span>→
+            <span className="rounded-full bg-surface-soft px-sm py-xxs">复盘</span>→
+            <span className="text-primary">更准的诊断</span>
+          </div>
           <ConsentRow
             checked={fields.agreeUser}
             onChange={fields.setAgreeUser}
@@ -238,6 +299,25 @@ function StepBody({ step, fields }: { step: number; fields: Fields }) {
               placeholder="如 140"
               inputMode="numeric"
             />
+            {/* F0018 分模块目标（可选） */}
+            <details className="mt-lg">
+              <summary className="cursor-pointer text-body-sm text-primary">
+                分模块目标（可选，不填则按平均折算）
+              </summary>
+              <div className="mt-md space-y-md">
+                {MODULES.map((m) => (
+                  <Field
+                    key={m}
+                    label={`${m} 目标分`}
+                    value={fields.targetModules[m] ?? ""}
+                    onChange={(v) =>
+                      fields.setTargetModules({ ...fields.targetModules, [m]: v.replace(/[^\d]/g, "") })
+                    }
+                    inputMode="numeric"
+                  />
+                ))}
+              </div>
+            </details>
           </div>
         </Question>
       );
@@ -247,6 +327,13 @@ function StepBody({ step, fields }: { step: number; fields: Fields }) {
           <div className="mt-xl space-y-lg">
             <TimePick label="工作日" value={fields.weekday} onChange={fields.setWeekday} />
             <TimePick label="周末" value={fields.weekend} onChange={fields.setWeekend} />
+            {/* F0021 固定时段（可选） */}
+            <Field
+              label="固定可学习时段（可选）"
+              value={fields.timeWindows}
+              onChange={fields.setTimeWindows}
+              placeholder="如 工作日 20:00–22:30"
+            />
           </div>
         </Question>
       );
@@ -262,6 +349,33 @@ function StepBody({ step, fields }: { step: number; fields: Fields }) {
                 onClick={() => fields.setStage(s)}
               />
             ))}
+          </div>
+          {/* F0024 薄弱自评（可选，多选） */}
+          <div className="mt-xl">
+            <p className="text-label-md text-muted">觉得自己弱的模块（可选，多选）</p>
+            <div className="mt-sm flex flex-wrap gap-sm" role="group" aria-label="自评薄弱模块">
+              {MODULES.map((m) => {
+                const on = fields.weakModules.includes(m);
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() =>
+                      fields.setWeakModules(on ? fields.weakModules.filter((x) => x !== m) : [...fields.weakModules, m])
+                    }
+                    className={`rounded-full border px-md py-sm text-label-md ${
+                      on ? "border-primary bg-primary-faint text-primary-active" : "border-border bg-surface text-muted"
+                    }`}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-sm text-caption text-muted-soft">
+              自评只作参考；系统会以真实训练数据校准，不会替你下结论。
+            </p>
           </div>
         </Question>
       );

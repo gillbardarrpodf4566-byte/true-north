@@ -39,6 +39,8 @@ export default function TodayPage() {
     setTodayMinutesOverride,
     lastRevealDate,
     markRevealed,
+    postponedTasks,
+    postponeTask,
   } = useProfileStore();
 
   const today = isoDate(new Date());
@@ -101,6 +103,11 @@ export default function TodayPage() {
   const firstTask = prescription?.tasks[0];
   const resultFor = (id: string) => taskResults.find((r) => r.taskId === id);
   const top = diagnosis?.opportunities[0];
+  // F0117：延后的任务今天不再显示
+  const postponedToday = postponedTasks[today] ?? [];
+  const visibleTasks = (prescription?.tasks ?? []).filter(
+    (t) => !postponedToday.includes(t.id),
+  );
 
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
@@ -191,14 +198,30 @@ export default function TodayPage() {
         ) : null}
 
         <div className="mt-md space-y-md">
-          {prescription?.tasks.map((t) => (
-            <PrescriptionCard
-              key={t.id}
-              task={t}
-              result={resultFor(t.id)}
-              href={`/train/session/${t.id}`}
-            />
+          {visibleTasks.map((t) => (
+            <div key={t.id}>
+              <PrescriptionCard
+                task={t}
+                result={resultFor(t.id)}
+                href={`/train/session/${t.id}`}
+              />
+              {/* F0117 延后任务：一键移至次日并重排 */}
+              {t.priority !== "必须" && !resultFor(t.id) ? (
+                <button
+                  type="button"
+                  onClick={() => postponeTask(today, t.id)}
+                  className="mt-xs text-caption text-muted underline-offset-2 hover:underline"
+                >
+                  今天做不完？放到明天
+                </button>
+              ) : null}
+            </div>
           ))}
+          {visibleTasks.length === 0 ? (
+            <p className="text-body-sm text-muted">
+              今天的任务都完成或延后了。休息也是计划的一部分。
+            </p>
+          ) : null}
         </div>
       </section>
 

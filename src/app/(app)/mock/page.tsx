@@ -167,6 +167,29 @@ export default function MockPage() {
     const prev = history[1];
     const delta = prev?.totalScore != null ? round1(totalScore - prev.totalScore) : null;
 
+    // F0191 关键变化：只突出最重要的改善与退化（模块正确率对比上一场）
+    const keyChange = ((): string | null => {
+      if (!prev) return null;
+      const deltas: Array<{ m: string; d: number }> = [];
+      for (const m of MODULES) {
+        const qs = paper.filter((qq) => qq.moduleId === m);
+        const cor = qs.filter((qq) => answers[qq.id] === qq.answerIndex).length;
+        const cur = qs.length > 0 ? cor / qs.length : null;
+        const pm = prev.modules.find((x) => x.id === m);
+        const accuracyPrev =
+          pm?.correct != null && pm?.questions ? pm.correct / pm.questions : null;
+        if (cur == null || accuracyPrev == null) continue;
+        deltas.push({ m, d: Math.round((cur - accuracyPrev) * 100) });
+      }
+      if (deltas.length === 0) return null;
+      const best = [...deltas].sort((a, b) => b.d - a.d)[0]!;
+      const worst = [...deltas].sort((a, b) => a.d - b.d)[0]!;
+      const parts: string[] = [];
+      if (best.d > 0) parts.push(`改善最明显的是${best.m}（+${best.d} 个百分点）`);
+      if (worst.d < 0 && worst.m !== best.m) parts.push(`退化最明显的是${worst.m}（${worst.d} 个百分点）`);
+      return parts.length > 0 ? parts.join("；") + "。" : "各模块与上一场基本持平。";
+    })();
+
     return (
       <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
         <p className="text-micro text-primary">模考报告</p>
@@ -199,6 +222,13 @@ export default function MockPage() {
             })}
           </ul>
         </Card>
+
+        {keyChange ? (
+          <Card className="mt-lg">
+            <p className="text-label-md text-muted">关键变化（F0191）</p>
+            <p className="mt-xs text-body-sm text-body">{keyChange}</p>
+          </Card>
+        ) : null}
 
         {delta != null ? (
           <p className="mt-md text-caption text-muted">

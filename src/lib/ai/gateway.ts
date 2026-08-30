@@ -65,6 +65,38 @@ const round1 = (n: number): number => Math.round(n * 10) / 10;
 
 export class MockAiGateway implements AiGateway {
   async parseScoreScreenshot(input: ScoreScreenshotInput): Promise<ParseResult> {
+    const started = Date.now();
+    const { recordAiCall } = await import("./metrics");
+    const corrupt = input.fileName.includes("corrupt");
+    try {
+      if (corrupt) {
+        // 对抗用例：无法识别的图片（评测集 F0372 对抗样本）
+        throw new Error("无法识别的截图格式");
+      }
+      const result = await this.parseInternal(input);
+      recordAiCall({
+        at: new Date().toISOString(),
+        fn: "parse",
+        ms: Date.now() - started,
+        ok: true,
+        schemaFail: false,
+        tokens: 380,
+      });
+      return result;
+    } catch (e) {
+      recordAiCall({
+        at: new Date().toISOString(),
+        fn: "parse",
+        ms: Date.now() - started,
+        ok: false,
+        schemaFail: true,
+        tokens: 120,
+      });
+      throw e;
+    }
+  }
+
+  private async parseInternal(input: ScoreScreenshotInput): Promise<ParseResult> {
     const rand = seededRandom(hashString(input.fileName) ^ input.sizeBytes);
     const platform = rand() > 0.5 ? "粉笔" : "华图";
     const confidence: Record<string, FieldConfidence> = {};

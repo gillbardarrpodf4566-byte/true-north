@@ -25,7 +25,7 @@ const statusTone = {
 } as const;
 
 export default function WrongbookPage() {
-  const { wrongBook, updateWrongEntry } = useProfileStore();
+  const { wrongBook, updateWrongEntry, favorites } = useProfileStore();
 
   if (wrongBook.length === 0) {
     return (
@@ -128,6 +128,26 @@ export default function WrongbookPage() {
         <p className="mt-xl text-caption text-muted">
           已修复 {wrongBook.filter((w) => w.status === "已修复").length} 题，它们仍会在间隔复测中出现。
         </p>
+      ) : null}
+
+      {/* F0134 收藏的题 */}
+      {favorites.length > 0 ? (
+        <section className="mt-section">
+          <h2 className="text-title-lg text-ink">收藏的代表题（{favorites.length}）</h2>
+          <ul className="mt-md space-y-md">
+            {favorites.map((id) => {
+              const q = questionById(id);
+              return (
+                <li key={id} className="rounded-md border border-border bg-surface p-md">
+                  <p className="text-body-sm text-body">{q ? q.stem.split("\n")[0] : id}</p>
+                  <p className="mt-xs text-caption text-muted">
+                    {q ? `${q.moduleId} · ${q.knowledgePoint}` : ""}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
       ) : null}
     </main>
   );

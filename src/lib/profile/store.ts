@@ -92,6 +92,14 @@ interface ProfileState {
   }>;
   /** 会员（CL-09 最小闭环：额度 + mock 订单 F0307–F0312） */
   membership: Membership;
+  /** 收藏的题（F0134） */
+  favorites: string[];
+  /** 延后的处方任务：date → taskIds（F0117） */
+  postponedTasks: Record<string, string[]>;
+  /** 通知偏好（F0290/F0324） */
+  notifications: { taskReminder: boolean; diagnosisReady: boolean; examDeadline: boolean; window: string };
+  /** 功能反馈（F0318） */
+  feedbacks: Array<{ id: string; type: "问题" | "建议"; text: string; hasScreenshot: boolean; at: string }>;
   /** Horizon Reveal 当天是否已播放（§7.4/§8.9 一天只完整执行一次） */
   lastRevealDate: string | null;
   setAgreements: (a: Agreements) => void;
@@ -111,6 +119,10 @@ interface ProfileState {
   setWeeklyReview: (w: WeeklyReview) => void;
   addAiFeedback: (f: { target: string; helpful: boolean | null; reported: boolean; reason: string }) => void;
   purchaseMembership: (plan: Membership["plan"], ok: boolean) => void;
+  toggleFavorite: (questionId: string) => void;
+  postponeTask: (date: string, taskId: string) => void;
+  setNotifications: (n: Partial<ProfileState["notifications"]>) => void;
+  addFeedback: (f: { type: "问题" | "建议"; text: string; hasScreenshot: boolean }) => void;
   markRevealed: (date: string) => void;
   reset: () => void;
 }
@@ -171,6 +183,10 @@ export const useProfileStore = create<ProfileState>()(
       weeklyReview: null,
       aiFeedback: [],
       membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, orders: [] },
+      favorites: [],
+      postponedTasks: {},
+      notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, window: "20:00" },
+      feedbacks: [],
       lastRevealDate: null,
       setAgreements: (agreements) =>
         set((s) => ({ profile: { ...s.profile, agreements } })),
@@ -229,6 +245,26 @@ export const useProfileStore = create<ProfileState>()(
               },
             ],
           },
+        })),
+      toggleFavorite: (questionId) =>
+        set((s) => ({
+          favorites: s.favorites.includes(questionId)
+            ? s.favorites.filter((f) => f !== questionId)
+            : [...s.favorites, questionId],
+        })),
+      postponeTask: (date, taskId) =>
+        set((s) => {
+          const list = s.postponedTasks[date] ?? [];
+          if (list.includes(taskId)) return {} as Partial<ProfileState>;
+          return { postponedTasks: { ...s.postponedTasks, [date]: [...list, taskId] } };
+        }),
+      setNotifications: (n) => set((s) => ({ notifications: { ...s.notifications, ...n } })),
+      addFeedback: (f) =>
+        set((s) => ({
+          feedbacks: [
+            ...s.feedbacks,
+            { id: `fdb-${Date.now()}`, at: new Date().toISOString(), ...f },
+          ],
         })),
       markRevealed: (lastRevealDate) => set({ lastRevealDate }),
       reset: () =>
