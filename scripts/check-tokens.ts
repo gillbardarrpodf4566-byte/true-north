@@ -59,6 +59,12 @@ function* walk(dir: string): Generator<string> {
   }
 }
 
+/** 注释行豁免：规范条文引用（如 §8.9 的逐帧时间轴）必须能原样写进文档注释 */
+function isCommentLine(line: string): boolean {
+  const t = line.trim();
+  return t.startsWith("*") || t.startsWith("//") || t.startsWith("/*");
+}
+
 const violations: string[] = [];
 for (const file of walk(SRC)) {
   const rp = relative(ROOT, file);
@@ -71,9 +77,11 @@ for (const file of walk(SRC)) {
     if (rule.testExempt && /\.test\.(ts|tsx)$/.test(file)) continue;
     const lines = content.split("\n");
     for (let i = 0; i < lines.length; i++) {
-      const m = lines[i]?.match(rule.pattern);
+      const line = lines[i] ?? "";
+      if (isCommentLine(line)) continue;
+      const m = line.match(rule.pattern);
       if (m && !(rule.allow?.(m[0]) ?? false)) {
-        violations.push(`${rp}:${i + 1}  [${rule.name}] ${m[0]}  ← ${lines[i]?.trim().slice(0, 80)}`);
+        violations.push(`${rp}:${i + 1}  [${rule.name}] ${m[0]}  ← ${line.trim().slice(0, 80)}`);
       }
     }
   }
