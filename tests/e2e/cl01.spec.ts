@@ -54,7 +54,9 @@ test("CL-01 首次建档闭环：注册目标→上传→确认→基线→今�
   await expect(page.getByRole("heading", { name: "导入模考成绩" })).toBeVisible();
 
   // 上传截图（F0030）→ 解析阶段文案 → 确认页
-  await page.setInputFiles('input[type="file"]', {
+    await page.getByRole("button", { name: "授权并继续" }).click();
+  await expect(page.getByText("点击选择成绩截图")).toBeVisible();
+await page.setInputFiles('input[type="file"]', {
     name: "fb-mock-1.png",
     mimeType: "image/png",
     buffer: PNG,

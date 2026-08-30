@@ -20,6 +20,7 @@ import { checkAll } from "@/lib/quality/checks";
 import { scoreImportMachine } from "@/lib/import/machine";
 import { useProfileStore, type ScoreImport } from "@/lib/profile/store";
 import { computeBaseline } from "@/lib/baseline/compute";
+import { recordPermission } from "@/lib/auth/client";
 
 const STAGE_TEXTS = ["正在识别截图中的成绩信息…", "正在核对模块与题量一致性…", "整理好了，等你确认"];
 
@@ -225,6 +226,13 @@ function UploadStep({
   fileRef: React.RefObject<HTMLInputElement | null>;
   onFile: (files: FileList) => void;
 }) {
+  // F0009 相册/文件权限：说明 → 授权 → 记录入库（xlsx 流程「说明→选择/授权→处理→结果确认→审计」）。
+  // Web 端没有独立的系统相册授权，这里做显式授权确认门；input 保持可命中以兼容自动化。
+  const [albumGranted, setAlbumGranted] = useState(false);
+  const grantAlbum = async (): Promise<void> => {
+    setAlbumGranted(true);
+    await recordPermission("album", true);
+  };
   return (
     <section className="mt-xl">
       <p className="text-label-md text-muted">成绩来源</p>
@@ -244,20 +252,43 @@ function UploadStep({
         ))}
       </div>
 
-      <label className="mt-xl flex min-h-40 cursor-pointer flex-col items-center justify-center gap-sm rounded-lg border border-dashed border-border-strong bg-surface p-xl text-center">
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          multiple
-          className="sr-only"
-          onChange={(e) => {
-            if (e.target.files && e.target.files.length > 0) onFile(e.target.files);
-          }}
-        />
-        <span className="text-body-md text-ink">点击选择成绩截图</span>
-        <span className="text-caption text-muted">支持 JPG / PNG；一次可多选同场考试截图</span>
-      </label>
+      {/* input 常驻（sr-only）以保证授权前后都可程序化选择文件 */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        multiple
+        className="sr-only"
+        id="score-file-input"
+        onChange={(e) => {
+          if (albumGranted && e.target.files && e.target.files.length > 0) onFile(e.target.files);
+        }}
+      />
+
+      {!albumGranted ? (
+        <div className="mt-xl rounded-lg border border-border bg-surface p-lg" role="group" aria-label="成绩截图访问授权">
+          <p className="text-body-md text-ink">允许见岸读取你的成绩截图吗？</p>
+          <ul className="mt-sm list-disc space-y-xs pl-lg text-caption text-muted">
+            <li>仅在你主动选择图片时读取，见岸不会扫描你的相册</li>
+            <li>截图只用于识别成绩字段，识别完成即可随手删除原图</li>
+            <li>识别结果必须经你逐项确认才会写入档案</li>
+          </ul>
+          <Button className="mt-md" fullWidth onClick={grantAlbum}>
+            授权并继续
+          </Button>
+          <p className="mt-sm text-center text-caption text-muted-soft">
+            授权记录会保存（可撤回）；拒绝则只能使用手工录入。
+          </p>
+        </div>
+      ) : (
+        <label
+          htmlFor="score-file-input"
+          className="mt-xl flex min-h-40 cursor-pointer flex-col items-center justify-center gap-sm rounded-lg border border-dashed border-border-strong bg-surface p-xl text-center"
+        >
+          <span className="text-body-md text-ink">点击选择成绩截图</span>
+          <span className="text-caption text-muted">支持 JPG / PNG；一次可多选同场考试截图</span>
+        </label>
+      )}
 
       <div className="mt-lg">
         <Button variant="secondary" fullWidth onClick={() => (window.location.href = "/import/manual")}>

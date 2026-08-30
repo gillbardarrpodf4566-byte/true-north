@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useProfileStore } from "@/lib/profile/store";
+import { fetchMe, logout, recordPermission, type AuthUser } from "@/lib/auth/client";
 
 export default function MePage() {
   const router = useRouter();
@@ -26,9 +27,26 @@ export default function MePage() {
 
   const [nicknameDraft, setNicknameDraft] = useState(profile.nickname);
   const [night, setNight] = useState(false);
+  /** F0008 通知权限（系统授权 + 授权记录入库） */
+  const [notifPerm, setNotifPerm] = useState<"未申请" | "已授权" | "已拒绝" | "本机模式">(
+    "未申请",
+  );
+  const [me, setMe] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     setNight(document.documentElement.dataset.theme === "night");
+    void fetchMe().then((u) => {
+      setMe(u);
+      if (u && typeof Notification !== "undefined") {
+        setNotifPerm(
+          Notification.permission === "granted"
+            ? "已授权"
+            : Notification.permission === "denied"
+              ? "已拒绝"
+              : "未申请",
+        );
+      }
+    });
   }, []);
 
   const toggleNight = (): void => {
@@ -114,6 +132,59 @@ export default function MePage() {
         </Card>
 
         <Card>
+          <p className="text-label-md text-muted">账号</p>
+          {me ? (
+            <p className="mt-xs text-body-md text-body">
+              {me.phone}
+              {me.nickname ? ` · ${me.nickname}` : ""}
+            </p>
+          ) : (
+            <p className="mt-xs text-body-md text-body">
+              本机模式（未登录）——数据只存在这台设备上。
+            </p>
+          )}
+          <div className="mt-md flex flex-wrap gap-md">
+            {me ? (
+              <Button
+                variant="tertiary"
+                onClick={async () => {
+                  await logout();
+                  router.replace("/login");
+                }}
+              >
+                退出登录（F0333）
+              </Button>
+            ) : (
+              <Button variant="tertiary" onClick={() => router.push("/login")}>
+                手机号登录
+              </Button>
+            )}
+            {/* F0008 通知权限：说明→授权→记录入库（F0006 审计流程） */}
+            <Button
+              variant="tertiary"
+              onClick={async () => {
+                if (typeof Notification === "undefined") {
+                  setNotifPerm("本机模式");
+                  return;
+                }
+                const result = await Notification.requestPermission();
+                setNotifPerm(
+                  result === "granted" ? "已授权" : result === "denied" ? "已拒绝" : "未申请",
+                );
+                await recordPermission("notification", result === "granted");
+              }}
+            >
+              通知权限：{notifPerm}
+            </Button>
+          </div>
+          {notifPerm === "已拒绝" ? (
+            <p className="mt-sm text-caption text-muted">
+              系统已拒绝通知。想恢复请在浏览器站点设置里重新允许；提醒仍会出现在应用内。
+            </p>
+          ) : null}
+        </Card>
+
+        <Card>
           <p className="text-label-md text-muted">外观</p>
           <div className="mt-sm flex items-center justify-between">
             <span className="text-body-md text-body">夜间学习主题</span>
@@ -168,14 +239,15 @@ export default function MePage() {
             </Button>
             <Button
               variant="tertiary"
-              onClick={() => {
+              onClick={async () => {
                 if (confirm("确定清除本机全部档案数据吗？此操作不可撤销。")) {
+                  await logout();
                   reset();
                   router.replace("/onboarding");
                 }
               }}
             >
-              清除本机数据（退出登录，F0333）
+              清除本机数据
             </Button>
           </div>
         </Card>

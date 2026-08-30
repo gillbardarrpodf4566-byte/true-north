@@ -62,7 +62,13 @@ function* walk(dir: string): Generator<string> {
 /** 注释行豁免：规范条文引用（如 §8.9 的逐帧时间轴）必须能原样写进文档注释 */
 function isCommentLine(line: string): boolean {
   const t = line.trim();
-  return t.startsWith("*") || t.startsWith("//") || t.startsWith("/*");
+  return (
+    t.startsWith("*") ||
+    t.startsWith("//") ||
+    t.startsWith("/*") ||
+    t.startsWith("{/*") ||
+    t.startsWith("<!--")
+  );
 }
 
 const violations: string[] = [];

@@ -34,7 +34,9 @@ async function completeOnboardingAndImport(page: import("@playwright/test").Page
   await page.getByRole("button", { name: "完成建档" }).click();
 
   await page.waitForURL(/\/import(\?|$)/);
-  await page.setInputFiles('input[type="file"]', {
+    await page.getByRole("button", { name: "授权并继续" }).click();
+  await expect(page.getByText("点击选择成绩截图")).toBeVisible();
+await page.setInputFiles('input[type="file"]', {
     name: "fb-cl02.png",
     mimeType: "image/png",
     buffer: PNG,

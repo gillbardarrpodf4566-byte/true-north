@@ -1,17 +1,18 @@
 # 见岸 · MVP 验收记录
 
-> 2026-08-30，Phase 0–5 全部完成后按 GOAL_PROMPT「完成定义」与 DESIGN.md §23 质量门槛逐项自查。
-> 自动化证据：`pnpm check`（typecheck / lint / vitest / token 漂移）+ `pnpm build` + Playwright E2E。
+> 2026-08-30 Phase 0–5 完成；2026-08-31 补齐账号/权限 6 条（SQLite + mock 短信通道），**MVP 171/171 全部完成**。
+> 自动化证据：`pnpm check`（typecheck / lint / vitest / token 漂移）+ `pnpm build` + Playwright E2E 11/11。
 
 ## 1. 完成定义（GOAL_PROMPT DoD）对照
 
 | 判据 | 状态 | 证据 |
 |---|---|---|
-| MVP 171 条功能点在台账中可追溯 | ✅ 165 完成 + 6 条后端/原生阻塞（spec-gaps GAP-6/7/11） | `docs/05-实现/feature-ledger.md`（每条含 ID/模块/优先级/版本/闭环/状态） |
+| MVP 171 条功能点全部完成 | ✅ 171/171 | `docs/05-实现/feature-ledger.md`（每条含 ID/模块/优先级/版本/闭环/状态） |
 | CL-01 建档闭环 E2E 绿 | ✅ | `tests/e2e/cl01.spec.ts`（2 例） |
-| 完整日闭环（诊断→处方→训练→复盘） | ✅ | CL-02（`cl02.spec.ts` 2 例）+ CL-03（`cl03.spec.ts` 2 例） |
-| 新模考触发重新诊断 | ✅ | CL-04：模考成绩入导入管线 → 基线重算 → 诊断过期自动重生成（`mock/page.tsx` + `diagnosis/page.tsx` useEffect），E2E `cl07.spec.ts` 覆盖 |
-| 关键 AI 错误进入评测闭环 | ✅ | 用户纠正（导入改字段）/AI 反馈（F0319）→ 后台工单归类（F0362）→ 运营台评测集与回归门禁（`/aiops` 真实驱动 MockAiGateway + diagnose 引擎） |
+| 完整日闭环（诊断→处方→训练→复盘） | ✅ | CL-02（2 例）+ CL-03（2 例） |
+| 新模考触发重新诊断 | ✅ | CL-04：模考成绩入导入管线 → 基线重算 → 诊断过期自动重生成，E2E `cl07.spec.ts` 覆盖 |
+| 关键 AI 错误进入评测闭环 | ✅ | 用户纠正（F0386）→ 后台工单归类（F0362）→ `/aiops` 评测集与零容忍回归门禁 |
+| 账号与权限（2026-08-31 补齐） | ✅ | `tests/e2e/auth.spec.ts` 3 例 + 服务端单测 9 例 |
 
 ## 2. 路线图 MVP 成功判据（xlsx 版本路线图）
 
@@ -41,8 +42,10 @@
 
 ## 5. 已知限制（转生产前必须处理）
 
-1. GAP-6/7：短信登录、账号恢复、通知/相册权限需后端与原生壳。
-2. GAP-10：/admin 与 /aiops 为单机 mock；RBAC/审计/Provider 需服务端。
-3. GAP-11：`data-correct` 测试钩子需构建开关。
-4. 诊断排序常量（GAP-8）为首版基线，需真实数据校准（C18/CL-10）。
-5. 性能：构建产物 First Load JS ≈ 102–117 kB（静态预渲染），Lighthouse 真机抽查待补；动效 60fps 需真机验证（§8.20）。
+1. 短信为 **mock 通道**：验证码随响应回显在登录页（GAP-6）；接短信服务商后删除响应中的 `mock.code` 字段即可，限流/冷却/锁定逻辑无需改动。
+2. 相册权限为 Web 端显式授权门（Web 无系统相册权限）；原生壳阶段替换为真实系统权限弹窗（GAP-7）。
+3. GAP-10：/admin 与 /aiops 为单机 mock；RBAC/审计/Provider 需服务端化。
+4. GAP-11：`data-correct` 测试钩子需构建开关。
+5. 诊断排序常量（GAP-8）为首版基线，需真实数据校准（C18/CL-10）。
+6. 性能：构建产物 First Load JS ≈ 102–117 kB（静态预渲染）；Lighthouse 真机抽查与动效 60fps 真机验证待补（§8.20）。
+7. SQLite 为单文件库（`data/jianan.db`，gitignore）；多实例部署需换 Postgres，数据访问已集中在 `src/lib/server/db.ts`。
