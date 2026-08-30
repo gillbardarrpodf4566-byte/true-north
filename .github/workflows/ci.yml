@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 生成 token 与功能台账
+        run: pnpm tokens && pnpm ledger
+
+      - name: 检查生成物无漂移（提交的生成物必须与规范一致）
+        run: git diff --exit-code src/styles src/design src/data docs/05-实现/feature-ledger.md
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: 单元测试
+        run: pnpm test
+
+      - name: token 漂移检查
+        run: pnpm check:tokens
+
+      - name: 构建
+        run: pnpm build

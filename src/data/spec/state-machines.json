@@ -1,0 +1,292 @@
+[
+  {
+    "object": "成绩导入",
+    "state": "待上传",
+    "entryCondition": "用户已登录且已建立目标",
+    "allowedActions": "选择图片/手工录入",
+    "successNext": "上传中",
+    "failureNext": "上传失败",
+    "recovery": "重新选择/检查权限",
+    "forbidden": "禁止直接写正式成绩"
+  },
+  {
+    "object": "成绩导入",
+    "state": "上传中",
+    "entryCondition": "文件通过基础限制",
+    "allowedActions": "上传私有存储",
+    "successNext": "解析中",
+    "failureNext": "上传失败",
+    "recovery": "重试且保持幂等",
+    "forbidden": "禁止公开URL裸露原图"
+  },
+  {
+    "object": "成绩导入",
+    "state": "解析中",
+    "entryCondition": "文件可解码",
+    "allowedActions": "AI提取结构化字段",
+    "successNext": "待确认",
+    "failureNext": "解析失败",
+    "recovery": "保留原图重试/手工录入",
+    "forbidden": "禁止AI自由文本直接入库"
+  },
+  {
+    "object": "成绩导入",
+    "state": "待确认",
+    "entryCondition": "Schema/领域校验通过",
+    "allowedActions": "用户确认/修正",
+    "successNext": "已确认",
+    "failureNext": "确认失败",
+    "recovery": "保留修正内容重试",
+    "forbidden": "禁止跳过低置信字段确认"
+  },
+  {
+    "object": "成绩导入",
+    "state": "已确认",
+    "entryCondition": "用户完成确认",
+    "allowedActions": "生成正式Assessment",
+    "successNext": "已入库",
+    "failureNext": "入库失败",
+    "recovery": "事务回滚后重试",
+    "forbidden": "禁止重复生成两份正式记录"
+  },
+  {
+    "object": "训练任务",
+    "state": "待开始",
+    "entryCondition": "任务已生成",
+    "allowedActions": "开始/替换/缩短",
+    "successNext": "进行中",
+    "failureNext": "过期",
+    "recovery": "重新排期",
+    "forbidden": "禁止超出时间预算仍强制执行"
+  },
+  {
+    "object": "训练任务",
+    "state": "进行中",
+    "entryCondition": "用户开始作答",
+    "allowedActions": "继续/暂停/提交",
+    "successNext": "已完成",
+    "failureNext": "中断",
+    "recovery": "本地/服务端恢复进度",
+    "forbidden": "禁止中断后丢失已作答"
+  },
+  {
+    "object": "训练任务",
+    "state": "已完成",
+    "entryCondition": "提交成功",
+    "allowedActions": "查看反馈/进入下一任务",
+    "successNext": "已反馈",
+    "failureNext": "反馈失败",
+    "recovery": "可先保存结果后异步补反馈",
+    "forbidden": "禁止因反馈失败丢训练数据"
+  },
+  {
+    "object": "错因",
+    "state": "待判断",
+    "entryCondition": "存在错误/高风险正确题",
+    "allowedActions": "AI建议错因",
+    "successNext": "待确认",
+    "failureNext": "证据不足",
+    "recovery": "标记待观察",
+    "forbidden": "禁止默认归因“粗心”"
+  },
+  {
+    "object": "错因",
+    "state": "待确认",
+    "entryCondition": "存在建议与证据",
+    "allowedActions": "用户确认/修改",
+    "successNext": "验证中",
+    "failureNext": "用户拒绝",
+    "recovery": "重新选择/保持未知",
+    "forbidden": "禁止不可见黑箱修改用户画像"
+  },
+  {
+    "object": "错因",
+    "state": "验证中",
+    "entryCondition": "已完成微干预",
+    "allowedActions": "近邻题/延迟复测",
+    "successNext": "已修复",
+    "failureNext": "复发",
+    "recovery": "重新进入处方",
+    "forbidden": "禁止一次答对即判永久掌握"
+  },
+  {
+    "object": "申论练习",
+    "state": "作答中",
+    "entryCondition": "题目材料完整",
+    "allowedActions": "提交答案",
+    "successNext": "批改中",
+    "failureNext": "草稿",
+    "recovery": "恢复草稿",
+    "forbidden": "禁止自动替用户提交"
+  },
+  {
+    "object": "申论练习",
+    "state": "批改中",
+    "entryCondition": "答案与Rubric可用",
+    "allowedActions": "生成评分/证据/建议",
+    "successNext": "待重写",
+    "failureNext": "批改失败",
+    "recovery": "重试或人工复核",
+    "forbidden": "禁止材料不完整时强评分"
+  },
+  {
+    "object": "申论练习",
+    "state": "待重写",
+    "entryCondition": "批改已完成",
+    "allowedActions": "重写/跳过",
+    "successNext": "二次批改",
+    "failureNext": "结束",
+    "recovery": "保存本次问题进入画像",
+    "forbidden": "禁止只看报告不提供下一动作"
+  },
+  {
+    "object": "面试练习",
+    "state": "录制中",
+    "entryCondition": "麦克风权限可用",
+    "allowedActions": "录音/停止",
+    "successNext": "转写中",
+    "failureNext": "录制失败",
+    "recovery": "检查权限/重录",
+    "forbidden": "禁止未经许可后台录音"
+  },
+  {
+    "object": "面试练习",
+    "state": "转写中",
+    "entryCondition": "音频存在",
+    "allowedActions": "ASR转写",
+    "successNext": "待确认",
+    "failureNext": "转写失败",
+    "recovery": "重试/手工修正",
+    "forbidden": "禁止低置信逐字稿直接评分"
+  },
+  {
+    "object": "面试练习",
+    "state": "待确认",
+    "entryCondition": "逐字稿可查看",
+    "allowedActions": "用户修正/确认",
+    "successNext": "分析中",
+    "failureNext": "取消",
+    "recovery": "保存草稿",
+    "forbidden": "禁止推断人格/情绪/诚信"
+  },
+  {
+    "object": "AI诊断",
+    "state": "待生成",
+    "entryCondition": "可信数据满足最低要求",
+    "allowedActions": "运行诊断",
+    "successNext": "已生成",
+    "failureNext": "低置信/失败",
+    "recovery": "补充数据/降级规则",
+    "forbidden": "禁止伪造精确提分值"
+  },
+  {
+    "object": "AI诊断",
+    "state": "已生成",
+    "entryCondition": "证据链完整",
+    "allowedActions": "接受/不认同/生成处方",
+    "successNext": "已转处方",
+    "failureNext": "失效",
+    "recovery": "新数据触发重新诊断",
+    "forbidden": "禁止旧诊断长期不更新"
+  },
+  {
+    "object": "学习处方",
+    "state": "草稿",
+    "entryCondition": "诊断或周复盘完成",
+    "allowedActions": "生成任务",
+    "successNext": "待确认",
+    "failureNext": "不可执行",
+    "recovery": "缩短/替换/重排",
+    "forbidden": "禁止任务总时长超预算"
+  },
+  {
+    "object": "学习处方",
+    "state": "待确认",
+    "entryCondition": "用户可查看原因",
+    "allowedActions": "确认/修改",
+    "successNext": "执行中",
+    "failureNext": "取消",
+    "recovery": "回到草稿",
+    "forbidden": "禁止不允许用户调整"
+  },
+  {
+    "object": "学习处方",
+    "state": "执行中",
+    "entryCondition": "任务开始",
+    "allowedActions": "完成/延后/放弃",
+    "successNext": "待复盘",
+    "failureNext": "未完成",
+    "recovery": "记录原因并重排",
+    "forbidden": "禁止用惩罚性提醒代替调整"
+  },
+  {
+    "object": "周复盘",
+    "state": "待生成",
+    "entryCondition": "周期结束且有数据",
+    "allowedActions": "汇总与分析",
+    "successNext": "待确认",
+    "failureNext": "数据不足",
+    "recovery": "输出数据缺口",
+    "forbidden": "禁止强行生成趋势结论"
+  },
+  {
+    "object": "周复盘",
+    "state": "待确认",
+    "entryCondition": "结论与证据可见",
+    "allowedActions": "确认/纠正/补充反思",
+    "successNext": "已重排",
+    "failureNext": "取消",
+    "recovery": "保留原计划",
+    "forbidden": "禁止系统静默改变下周目标"
+  },
+  {
+    "object": "职位",
+    "state": "待校验",
+    "entryCondition": "职位数据已导入",
+    "allowedActions": "执行资格规则",
+    "successNext": "可报/不可报/待确认",
+    "failureNext": "规则冲突",
+    "recovery": "人工核对公告",
+    "forbidden": "禁止AI覆盖确定性资格规则"
+  },
+  {
+    "object": "职位",
+    "state": "可报",
+    "entryCondition": "硬条件通过",
+    "allowedActions": "排序/对比/收藏",
+    "successNext": "意向",
+    "failureNext": "数据过期",
+    "recovery": "刷新并提示时间",
+    "forbidden": "禁止把预测值当官方事实"
+  },
+  {
+    "object": "AI版本",
+    "state": "候选",
+    "entryCondition": "模型/Prompt有变更",
+    "allowedActions": "离线评测",
+    "successNext": "待灰度",
+    "failureNext": "回归失败",
+    "recovery": "修复后重跑",
+    "forbidden": "禁止跳过Regression"
+  },
+  {
+    "object": "AI版本",
+    "state": "待灰度",
+    "entryCondition": "关键评测通过",
+    "allowedActions": "小流量发布",
+    "successNext": "灰度中",
+    "failureNext": "发布失败",
+    "recovery": "回滚上一稳定版",
+    "forbidden": "禁止一次全量上线"
+  },
+  {
+    "object": "AI版本",
+    "state": "灰度中",
+    "entryCondition": "线上指标可观测",
+    "allowedActions": "扩大/停止/回滚",
+    "successNext": "生产",
+    "failureNext": "线上退化",
+    "recovery": "自动/人工回滚",
+    "forbidden": "禁止只看离线分数"
+  }
+]
