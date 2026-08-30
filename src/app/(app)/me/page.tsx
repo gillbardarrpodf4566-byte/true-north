@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { useProfileStore } from "@/lib/profile/store";
 
 export default function MePage() {
-  const { profile, imports, reset } = useProfileStore();
+  const { profile, imports, membership, reset } = useProfileStore();
 
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
@@ -56,6 +56,16 @@ export default function MePage() {
             清除本机数据
           </Button>
         </Card>
+
+        <Link
+          href="/membership"
+          className="flex items-center justify-between rounded-lg border border-border bg-surface px-lg py-md"
+        >
+          <span className="text-body-md text-ink">订阅与权益</span>
+          <span className="text-caption text-muted">
+            {membership.plan === "free" ? "免费版 ›" : "见岸 Pro ›"}
+          </span>
+        </Link>
       </div>
     </main>
   );

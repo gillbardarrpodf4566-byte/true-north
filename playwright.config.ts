@@ -4,8 +4,9 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: false,
+  workers: 1, // 串行执行：并行下 Windows 生产服务器偶发 ChunkLoadError（连接被重置）
   forbidOnly: !process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  retries: process.env.CI ? 2 : 1, // 本地重试吸收偶发 ChunkLoadError（生产服务器并行压力下观察到）
   reporter: "list",
   timeout: 60_000,
   use: {

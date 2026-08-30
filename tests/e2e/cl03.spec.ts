@@ -54,6 +54,7 @@ async function onboardAndImport(page: import("@playwright/test").Page) {
 }
 
 test("CL-03 训练闭环：作答→即时反馈→错因→总结→数据入模→错题本", async ({ page }) => {
+  page.on("pageerror", (e) => console.log("PAGEERROR:", e.stack?.slice(0, 600)));
   await onboardAndImport(page);
 
   // 从训练中心进入专项（自由训练）

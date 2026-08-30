@@ -79,6 +79,19 @@ interface ProfileState {
   wrongBook: WrongBookEntry[];
   /** 今日临时可用时间覆盖（F0054） */
   todayMinutesOverride: number | null;
+  /** 周复盘（状态机：待生成→待确认→已重排；禁止静默改变下周目标） */
+  weeklyReview: WeeklyReview | null;
+  /** AI 回答反馈与举报（F0178/F0179/F0319） */
+  aiFeedback: Array<{
+    id: string;
+    target: string;
+    helpful: boolean | null;
+    reported: boolean;
+    reason: string;
+    at: string;
+  }>;
+  /** 会员（CL-09 最小闭环：额度 + mock 订单 F0307–F0312） */
+  membership: Membership;
   /** Horizon Reveal 当天是否已播放（§7.4/§8.9 一天只完整执行一次） */
   lastRevealDate: string | null;
   setAgreements: (a: Agreements) => void;
@@ -95,8 +108,32 @@ interface ProfileState {
   addWrongEntries: (e: WrongBookEntry[]) => void;
   updateWrongEntry: (questionId: string, patch: Partial<WrongBookEntry>) => void;
   setTodayMinutesOverride: (m: number | null) => void;
+  setWeeklyReview: (w: WeeklyReview) => void;
+  addAiFeedback: (f: { target: string; helpful: boolean | null; reported: boolean; reason: string }) => void;
+  purchaseMembership: (plan: Membership["plan"], ok: boolean) => void;
   markRevealed: (date: string) => void;
   reset: () => void;
+}
+
+export interface WeeklyReview {
+  weekKey: string;
+  /** 待确认 | 已重排 */
+  status: "待确认" | "已重排";
+  conclusion: string;
+  effective: string[];
+  wasted: string[];
+  discoveries: string[];
+  /** 下周 1–3 个重点（用户确认后才生效，禁止静默改变下周目标） */
+  nextPriorities: string[];
+  confirmedAt: string | null;
+}
+
+export interface Membership {
+  plan: "free" | "pro-monthly" | "pro-yearly";
+  /** 免费版每周诊断生成额度 */
+  diagnosisQuota: number;
+  usedDiagnosis: number;
+  orders: Array<{ id: string; plan: Membership["plan"]; status: "处理中" | "成功" | "失败"; at: string }>;
 }
 
 /** 任务完成结果（F0115） */
@@ -131,6 +168,9 @@ export const useProfileStore = create<ProfileState>()(
       sessions: [],
       wrongBook: [],
       todayMinutesOverride: null,
+      weeklyReview: null,
+      aiFeedback: [],
+      membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, orders: [] },
       lastRevealDate: null,
       setAgreements: (agreements) =>
         set((s) => ({ profile: { ...s.profile, agreements } })),
@@ -166,6 +206,30 @@ export const useProfileStore = create<ProfileState>()(
           ),
         })),
       setTodayMinutesOverride: (todayMinutesOverride) => set({ todayMinutesOverride }),
+      setWeeklyReview: (weeklyReview) => set({ weeklyReview }),
+      addAiFeedback: (f) =>
+        set((s) => ({
+          aiFeedback: [
+            ...s.aiFeedback,
+            { id: `fb-${Date.now()}`, at: new Date().toISOString(), ...f },
+          ],
+        })),
+      purchaseMembership: (plan, ok) =>
+        set((s) => ({
+          membership: {
+            ...s.membership,
+            plan: ok ? plan : s.membership.plan,
+            orders: [
+              ...s.membership.orders,
+              {
+                id: `ord-${Date.now()}`,
+                plan,
+                status: ok ? "成功" : "失败",
+                at: new Date().toISOString(),
+              },
+            ],
+          },
+        })),
       markRevealed: (lastRevealDate) => set({ lastRevealDate }),
       reset: () =>
         set({
@@ -178,6 +242,9 @@ export const useProfileStore = create<ProfileState>()(
           sessions: [],
           wrongBook: [],
           todayMinutesOverride: null,
+          weeklyReview: null,
+          aiFeedback: [],
+          membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, orders: [] },
           lastRevealDate: null,
         }),
     }),
