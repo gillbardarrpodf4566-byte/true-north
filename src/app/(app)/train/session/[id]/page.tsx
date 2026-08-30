@@ -22,6 +22,7 @@ import { useProfileStore, type TrainingSession } from "@/lib/profile/store";
 import { buildTrainingSet, questionById } from "@/lib/questions/seed";
 import { suggestErrorCause } from "@/lib/errorcause/engine";
 import { computeBaseline } from "@/lib/baseline/compute";
+import { filterDisabled, fetchDisabledQuestions } from "@/lib/questions/useDisabled";
 import { duration, easing } from "@/design/tokens";
 import { MODULES } from "@/lib/profile/types";
 import type { Question } from "@/lib/questions/types";
@@ -58,6 +59,7 @@ export default function SessionPage() {
   const [hintOpen, setHintOpen] = useState(false);
   /** 提示阶梯（F0166–F0169）：0 收起 → 1 提问定位（先问后讲）→ 2 策略提示 */
   const [hintLevel, setHintLevel] = useState<0 | 1 | 2>(0);
+  const [disabledIds, setDisabledIds] = useState<string[]>([]);
   const qStart = useRef<number>(Date.now());
   const tick = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -66,12 +68,13 @@ export default function SessionPage() {
   const task = prescription?.tasks.find((t) => t.id === rawId);
   const sessionId = rawId || "free";
 
-  // 训练集：纯派生（无 effect/水合竞态）。复测 → 任务 → 自由专项。
+  // 训练集：纯派生（无 effect/水合竞态）。复测 → 任务 → 自由专项；已下线题不入组卷（F0343）。
   const questions: Question[] = useMemo(() => {
+    const drop = (list: Question[]): Question[] => filterDisabled(list, disabledIds);
     if (rawId.startsWith("retest-")) {
       const origin = questionById(safeDecode(rawId.replace("retest-", "")));
       if (origin) {
-        const pool = buildTrainingSet(origin.moduleId, 20);
+        const pool = drop(buildTrainingSet(origin.moduleId, 20));
         const neighbors = pool.filter((x) => x.knowledgePoint === origin.knowledgePoint).slice(0, 2);
         return neighbors.length > 0 ? neighbors : [origin];
       }
@@ -80,7 +83,7 @@ export default function SessionPage() {
       const qs = session.wrongIds
         .map((id) => questionById(id))
         .filter((q): q is Question => q != null);
-      if (qs.length > 0) return qs;
+      if (qs.length > 0) return drop(qs);
     }
     const moduleId =
       task?.moduleId ??
@@ -89,10 +92,15 @@ export default function SessionPage() {
         : "言语理解");
     const count = Math.min(task?.questionCount ?? 8, 12);
     const offset = sessions.filter((s) => s.moduleId === moduleId).length * 7;
-    return buildTrainingSet(moduleId, count, offset);
+    return drop(buildTrainingSet(moduleId, count, offset));
     // sessions 仅取长度参与 offset，避免频繁重排
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawId, task?.moduleId, task?.questionCount, sessions.length, session?.wrongIds]);
+  }, [rawId, task?.moduleId, task?.questionCount, sessions.length, session?.wrongIds, disabledIds]);
+
+  // F0343：已下线题过滤（服务端真源）
+  useEffect(() => {
+    void fetchDisabledQuestions().then((ids) => setDisabledIds(ids));
+  }, []);
 
   const startTimer = useCallback((): void => {
     if (tick.current) return;

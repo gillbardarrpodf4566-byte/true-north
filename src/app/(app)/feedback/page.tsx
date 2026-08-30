@@ -13,12 +13,21 @@ export default function FeedbackPage() {
   const [hasShot, setHasShot] = useState(false);
   const [done, setDone] = useState(false);
 
-  const submit = (): void => {
+  const submit = async (): Promise<void> => {
     if (text.trim().length < 5) return;
-    addFeedback({ type, text: text.trim(), hasScreenshot: hasShot });
-    setDone(true);
-    setText("");
-    setHasShot(false);
+    const res = await fetch("/api/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ type, text: text.trim(), hasScreenshot: hasShot }),
+    });
+    if (res.ok) {
+      addFeedback({ type, text: text.trim(), hasScreenshot: hasShot });
+      setDone(true);
+      setText("");
+      setHasShot(false);
+    } else {
+      setDone(false);
+    }
   };
 
   return (
@@ -66,12 +75,12 @@ export default function FeedbackPage() {
           />
           附上截图（可选）
         </label>
-        <Button className="mt-lg" fullWidth disabled={text.trim().length < 5} onClick={submit}>
+        <Button className="mt-lg" fullWidth disabled={text.trim().length < 5} onClick={() => void submit()}>
           提交反馈
         </Button>
         {done ? (
           <p role="status" className="mt-md text-body-sm text-success">
-            已提交。处理进度可在「我的-反馈记录」查看。
+            已提交到处理队列，可在下方查看记录。
           </p>
         ) : null}
       </Card>

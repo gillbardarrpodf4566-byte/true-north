@@ -1,43 +1,110 @@
 "use client";
 
 /**
- * 管理后台（管理后台 MVP 13 条 + 客服工单）。
- * F0335/0336 用户管理 · F0338 会员管理 · F0340–0343 题库管理（含 F0148 争议题下线）
- * · F0350 考试管理 · F0358 会员配置 · F0361/0362 反馈工单与 AI 问题归类 ·
- * F0364 RBAC · F0365 审计日志。MVP 为单机 mock 面板：交互真实落 store，数据本地。
+ * 管理后台（服务端化）：数据来自 /api/admin/*（SQLite），操作带 Bearer 员工 token，
+ * 服务端按 F0364 角色矩阵校验，前端仅按角色隐藏无权限的写操作。
+ * 种子员工见 /admin-login 页脚。
  */
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
-import { useAdminStore, type QuestionStatus } from "@/lib/admin/store";
-import { useProfileStore } from "@/lib/profile/store";
-import { allSeedQuestions } from "@/lib/questions/seed";
-import { MODULES } from "@/lib/profile/types";
+import { EmptyState } from "@/components/ui/StateViews";
+import { adminApi, staffLogout, staffMe, type StaffIdentity } from "@/lib/auth/adminClient";
 
-const STATUSES: QuestionStatus[] = ["草稿", "审核", "已发布", "已下线"];
+const STATUSES = ["草稿", "审核", "已发布", "已下线"] as const;
+type QuestionStatus = (typeof STATUSES)[number];
+
+interface QuestionRow {
+  id: string;
+  moduleId: string;
+  stem: string;
+  knowledgePoint: string;
+  realExam: { year: number; region: string; exam: string } | null;
+  status: string;
+}
+
+const TABS = [
+  ["bank", "题库"],
+  ["users", "用户"],
+  ["tickets", "工单"],
+  ["config", "配置"],
+  ["audit", "审计"],
+] as const;
+
+const ROLE_LABEL: Record<StaffIdentity["role"], string> = {
+  operations: "运营",
+  teaching: "教研",
+  support: "客服",
+  aiops: "AI运营",
+  admin: "管理员",
+};
+
+/** 角色能力（与服务端 F0364 矩阵一致；服务端仍是强校验方） */
+const CAN: Record<StaffIdentity["role"], Record<string, boolean>> = {
+  operations: { bankWrite: true, ticketsWrite: true, configWrite: true, auditRead: true },
+  teaching: { bankWrite: true, ticketsWrite: false, configWrite: false, auditRead: false },
+  support: { bankWrite: false, ticketsWrite: true, configWrite: false, auditRead: false },
+  aiops: { bankWrite: false, ticketsWrite: false, configWrite: false, auditRead: false },
+  admin: { bankWrite: true, ticketsWrite: true, configWrite: true, auditRead: true },
+};
 
 export default function AdminPage() {
-  const [tab, setTab] = useState<"bank" | "users" | "tickets" | "config" | "audit">("bank");
-  const tabs = [
-    ["bank", "题库"],
-    ["users", "用户"],
-    ["tickets", "工单"],
-    ["config", "配置"],
-    ["audit", "审计"],
-  ] as const;
+  const router = useRouter();
+  const [staff, setStaff] = useState<StaffIdentity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<(typeof TABS)[number][0]>("bank");
+
+  useEffect(() => {
+    void staffMe().then((s) => {
+      if (!s) {
+        router.replace("/admin-login");
+        return;
+      }
+      setStaff(s);
+      setLoading(false);
+    });
+  }, [router]);
+
+  const can = (cap: string): boolean => (staff ? CAN[staff.role][cap] ?? false : false);
+
+  if (loading || !staff) {
+    return (
+      <main className="mx-auto max-w-[430px] px-margin-mobile pt-xl">
+        <p className="text-body-md text-muted">正在验证员工身份…</p>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-headline-xl text-ink">管理后台</h1>
-        <Link href="/aiops" className="text-label-md text-primary">
-          AI 运营台 ›
-        </Link>
+      <header className="flex items-baseline justify-between gap-sm">
+        <div>
+          <h1 className="text-headline-xl text-ink">管理后台</h1>
+          <p className="mt-xs text-caption text-muted">
+            {staff.display_name} · {ROLE_LABEL[staff.role]}（服务端 RBAC 生效）
+          </p>
+        </div>
+        <div className="flex items-center gap-md">
+          <Link href="/aiops" className="text-label-md text-primary">
+            AI 运营台 ›
+          </Link>
+          <button
+            type="button"
+            onClick={async () => {
+              await staffLogout();
+              router.replace("/admin-login");
+            }}
+            className="text-caption text-muted underline-offset-2 hover:underline"
+          >
+            退出
+          </button>
+        </div>
       </header>
+
       <nav aria-label="后台导航" className="mt-lg flex gap-sm">
-        {tabs.map(([k, label]) => (
+        {TABS.map(([k, label]) => (
           <button
             key={k}
             type="button"
@@ -53,52 +120,62 @@ export default function AdminPage() {
       </nav>
 
       <div className="mt-xl">
-        {tab === "bank" ? <BankTab /> : null}
+        {tab === "bank" ? <BankTab canWrite={can("bankWrite")} /> : null}
         {tab === "users" ? <UsersTab /> : null}
-        {tab === "tickets" ? <TicketsTab /> : null}
-        {tab === "config" ? <ConfigTab /> : null}
-        {tab === "audit" ? <AuditTab /> : null}
+        {tab === "tickets" ? <TicketsTab canWrite={can("ticketsWrite")} /> : null}
+        {tab === "config" ? <ConfigTab canWrite={can("configWrite")} /> : null}
+        {tab === "audit" ? <AuditTab canRead={can("auditRead")} /> : null}
       </div>
     </main>
   );
 }
 
-function BankTab() {
-  const { questionStatus, setQuestionStatus } = useAdminStore();
-  const [filter, setFilter] = useState<string>("全部");
+function BankTab({ canWrite }: { canWrite: boolean }) {
+  const [rows, setRows] = useState<QuestionRow[]>([]);
+  const [filter, setFilter] = useState("全部");
   const [importText, setImportText] = useState("");
-  const [importReport, setImportReport] = useState<string | null>(null);
+  const [report, setReport] = useState<string | null>(null);
 
-  const questions = useMemo(() => allSeedQuestions(), []);
-  const visible = questions.filter((q) => filter === "全部" || q.moduleId === filter);
+  const load = useCallback(async (): Promise<void> => {
+    const data = await adminApi<{ rows: QuestionRow[] }>("/api/admin/questions");
+    if (data.ok) setRows(data.rows);
+  }, []);
 
-  // F0341 批量导入：JSON 数组 → 结构校验与失败报告（mock：校验字段完备性）
-  const runImport = (): void => {
-    try {
-      const arr = JSON.parse(importText) as Array<Record<string, unknown>>;
-      const problems: string[] = [];
-      arr.forEach((row, i) => {
-        for (const key of ["moduleId", "stem", "options", "answerIndex", "explanation"]) {
-          if (row[key] == null) problems.push(`第 ${i + 1} 条缺少 ${key}`);
-        }
-        if (Array.isArray(row.options) && row.options.length !== 4) {
-          problems.push(`第 ${i + 1} 条选项数不是 4`);
-        }
-      });
-      setImportReport(
-        problems.length === 0
-          ? `校验通过 ${arr.length} 条，已进入「草稿」待审核。`
-          : `校验失败 ${problems.length} 处：\n${problems.slice(0, 5).join("\n")}`,
-      );
-    } catch {
-      setImportReport("JSON 解析失败，请检查格式。");
-    }
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const changeStatus = async (qid: string, status: QuestionStatus): Promise<void> => {
+    const r = await adminApi("/api/admin/questions", {
+      method: "POST",
+      body: JSON.stringify({ action: "status", qid, status }),
+    });
+    if (r.ok) void load();
+    else setReport(r.message ?? "操作失败");
   };
+
+  const runImport = async (): Promise<void> => {
+    let rows: unknown;
+    try {
+      rows = JSON.parse(importText);
+    } catch {
+      setReport("JSON 解析失败，请检查格式。");
+      return;
+    }
+    const r = await adminApi<{ problems?: string[]; message?: string }>("/api/admin/questions", {
+      method: "POST",
+      body: JSON.stringify({ action: "import", rows }),
+    });
+    setReport(r.ok ? (r.message ?? "导入成功") : `校验失败 ${r.problems?.length ?? 0} 处：\n${(r.problems ?? []).slice(0, 5).join("\n")}`);
+    if (r.ok) void load();
+  };
+
+  const visible = rows.filter((q) => filter === "全部" || q.moduleId === filter);
 
   return (
     <section>
       <div className="flex flex-wrap gap-sm" role="group" aria-label="模块筛选">
-        {["全部", ...MODULES].map((m) => (
+        {["全部", "言语理解", "判断推理", "数量关系", "资料分析", "常识判断"].map((m) => (
           <button
             key={m}
             type="button"
@@ -113,175 +190,223 @@ function BankTab() {
         ))}
       </div>
 
-      {/* F0340/0341 录入与批量导入 */}
-      <details className="mt-lg">
-        <summary className="cursor-pointer text-body-sm text-primary">批量导入题目（JSON）</summary>
-        <textarea
-          value={importText}
-          onChange={(e) => setImportText(e.target.value)}
-          rows={5}
-          aria-label="题目 JSON"
-          placeholder='[{"moduleId":"资料分析","stem":"...","options":["A","B","C","D"],"answerIndex":0,"explanation":"..."}]'
-          className="mt-sm w-full rounded-sm border border-border-strong bg-surface p-md text-caption text-ink"
-        />
-        <Button className="mt-sm" variant="secondary" onClick={runImport} disabled={importText.trim() === ""}>
-          校验并导入
-        </Button>
-        {importReport ? (
-          <pre className="mt-sm whitespace-pre-wrap rounded-sm bg-surface-soft p-md text-caption text-body">
-            {importReport}
-          </pre>
-        ) : null}
-      </details>
+      {canWrite ? (
+        <details className="mt-lg">
+          <summary className="cursor-pointer text-body-sm text-primary">批量导入题目（JSON）</summary>
+          <textarea
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            rows={5}
+            aria-label="题目 JSON"
+            className="mt-sm w-full rounded-sm border border-border-strong bg-surface p-md text-caption text-ink"
+          />
+          <Button className="mt-sm" variant="secondary" disabled={importText.trim() === ""} onClick={runImport}>
+            校验并导入
+          </Button>
+        </details>
+      ) : null}
+      {report ? (
+        <pre className="mt-sm whitespace-pre-wrap rounded-sm bg-surface-soft p-md text-caption text-body">{report}</pre>
+      ) : null}
 
-      {/* F0342/0343 状态流与下线 */}
+      {!canWrite ? (
+        <p className="mt-lg text-caption text-muted-soft">当前角色为只读（服务端已同步限制写接口）。</p>
+      ) : null}
+
       <ul className="mt-lg divide-y divide-border rounded-lg border border-border bg-surface">
-        {visible.map((q) => {
-          const status = questionStatus[q.id] ?? "已发布";
-          return (
-            <li key={q.id} className="px-lg py-md">
-              <div className="flex items-start justify-between gap-sm">
-                <p className="text-body-sm text-body">
-                  {q.stem.split("\n")[0]}
-                  <span className="ml-sm text-caption text-muted-soft">
-                    {q.id} · {q.moduleId}
-                    {q.realExam ? ` · ${q.realExam.year}${q.realExam.region}` : ""}
-                  </span>
-                </p>
-                <Chip tone={status === "已下线" ? "warning" : status === "已发布" ? "insight" : "neutral"}>
-                  {status}
-                </Chip>
-              </div>
+        {visible.map((q) => (
+          <li key={q.id} className="px-lg py-md">
+            <div className="flex items-start justify-between gap-sm">
+              <p className="text-body-sm text-body">
+                {q.stem}
+                <span className="ml-sm text-caption text-muted-soft">
+                  {q.id} · {q.moduleId}
+                  {q.realExam ? ` · ${q.realExam.year}${q.realExam.region}` : ""}
+                </span>
+              </p>
+              <Chip tone={q.status === "已下线" ? "warning" : q.status === "已发布" ? "insight" : "neutral"}>
+                {q.status}
+              </Chip>
+            </div>
+            {canWrite ? (
               <div className="mt-sm flex flex-wrap gap-sm">
-                {STATUSES.filter((s) => s !== status).map((s) => (
+                {STATUSES.filter((s) => s !== q.status).map((s) => (
                   <button
                     key={s}
                     type="button"
-                    onClick={() => setQuestionStatus(q.id, s, "admin")}
+                    onClick={() => changeStatus(q.id, s)}
                     className="rounded-full border border-border px-md py-xxs text-caption text-muted"
                   >
                     → {s}
                   </button>
                 ))}
               </div>
-            </li>
-          );
-        })}
+            ) : null}
+          </li>
+        ))}
       </ul>
       <p className="mt-md text-caption text-muted-soft">
-        「已下线」的题不再进入训练组卷，历史作答记录不受影响（F0343/F0148）。
+        「已下线」的题立即从服务端组卷过滤中生效；历史作答记录不受影响（F0343/F0148）。
       </p>
     </section>
   );
 }
 
 function UsersTab() {
-  const { profile, membership, imports } = useProfileStore();
+  const [rows, setRows] = useState<Array<{ id: number; phone: string; nickname: string | null; active_tokens: number; permission_records: number }>>([]);
   const [q, setQ] = useState("");
-  // F0336：概览可见，敏感原始内容默认不展示
-  const hit = q === "" || profile.goal?.examName.includes(q) || profile.nickname.includes(q);
+
+  useEffect(() => {
+    void adminApi<{ rows: typeof rows }>("/api/admin/users").then((d) => {
+      if (d.ok) setRows(d.rows);
+    });
+  }, []);
+
+  const visible = rows.filter(
+    (u) => q === "" || u.phone.includes(q) || (u.nickname ?? "").includes(q),
+  );
+
   return (
     <section>
       <input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        aria-label="按考试或昵称检索用户"
-        placeholder="按昵称 / 考试检索"
+        aria-label="按手机号或昵称检索用户"
+        placeholder="按手机号 / 昵称检索"
         className="h-12 w-full rounded-sm border border-border-strong bg-surface px-md text-body-md text-ink"
       />
-      {hit ? (
-        <Card className="mt-lg">
-          <p className="text-title-md text-ink">{profile.nickname || "（未设昵称）"}</p>
-          <p className="mt-xs text-body-sm text-body">
-            {profile.goal ? `${profile.goal.examName} · ${profile.goal.region}` : "未设置目标"}
-          </p>
-          <dl className="mt-md space-y-xs text-body-sm">
-            <div className="flex justify-between">
-              <dt className="text-muted">会员</dt>
-              <dd>{membership.plan === "free" ? "免费版" : membership.plan}</dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted">诊断额度</dt>
-              <dd>
-                {membership.usedDiagnosis}/{membership.diagnosisQuota}
-              </dd>
-            </div>
-            <div className="flex justify-between">
-              <dt className="text-muted">成绩记录</dt>
-              <dd>{imports.length} 次</dd>
-            </div>
-          </dl>
-          <p className="mt-md text-caption text-muted-soft">
-            敏感原始内容（作答明细、聊天记录）默认不在此展示（F0336）。
-          </p>
-        </Card>
+      {visible.length === 0 ? (
+        <div className="mt-lg">
+          <EmptyState why="无匹配用户。" action="用户来自短信登录建档（数据库模拟数据含 3 个种子用户）。" />
+        </div>
       ) : (
-        <p className="mt-lg text-body-sm text-muted">无匹配用户。</p>
-      )}
-    </section>
-  );
-}
-
-function TicketsTab() {
-  const { feedbacks, aiFeedback } = useProfileStore();
-  return (
-    <section>
-      <h2 className="text-title-lg text-ink">功能反馈（F0361）</h2>
-      {feedbacks.length === 0 ? (
-        <p className="mt-md text-body-sm text-muted">暂无功能反馈。</p>
-      ) : (
-        <ul className="mt-md space-y-md">
-          {feedbacks.map((f) => (
-            <li key={f.id} className="rounded-md border border-border bg-surface p-md">
-              <p className="text-caption text-muted">
-                {f.type} · {new Date(f.at).toLocaleString("zh-CN")}
-                {f.hasScreenshot ? " · 附截图" : ""}
+        <ul className="mt-lg divide-y divide-border rounded-lg border border-border bg-surface">
+          {visible.map((u) => (
+            <li key={u.id} className="px-lg py-md">
+              <p className="text-body-md text-ink">
+                {u.nickname ?? "（未设昵称）"}
+                <span className="ml-sm text-caption text-muted">{u.phone}</span>
               </p>
-              <p className="mt-xs text-body-sm text-body">{f.text}</p>
+              <p className="mt-xs text-caption text-muted">
+                有效会话 {u.active_tokens} · 授权记录 {u.permission_records} 条
+              </p>
             </li>
           ))}
         </ul>
       )}
+      <p className="mt-md text-caption text-muted-soft">
+        学习明细与作答内容默认不在此展示（F0336）。
+      </p>
+    </section>
+  );
+}
 
-      <h2 className="mt-xl text-title-lg text-ink">AI 问题反馈（F0362 归类）</h2>
-      {aiFeedback.length === 0 ? (
-        <p className="mt-md text-body-sm text-muted">暂无 AI 反馈。</p>
+function TicketsTab({ canWrite }: { canWrite: boolean }) {
+  const [rows, setRows] = useState<Array<{ id: number; category: string; type: string; text: string; has_screenshot: number; status: string; created_at: string }>>([]);
+
+  const load = useCallback(async (): Promise<void> => {
+    const d = await adminApi<{ rows: typeof rows }>("/api/admin/tickets");
+    if (d.ok) setRows(d.rows);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const resolve = async (id: number): Promise<void> => {
+    const r = await adminApi("/api/admin/tickets", {
+      method: "PATCH",
+      body: JSON.stringify({ id, status: "已处理" }),
+    });
+    if (r.ok) void load();
+  };
+
+  return (
+    <section>
+      <h2 className="text-title-lg text-ink">反馈与 AI 问题工单</h2>
+      <p className="mt-xs text-caption text-muted">
+        用户反馈（F0318）与 AI 结果反馈（F0319/F0362 归类：解析错误/诊断不准/其他）。
+      </p>
+      {rows.length === 0 ? (
+        <div className="mt-lg">
+          <EmptyState why="暂无工单。" action="用户在 App 内提交反馈后会出现在这里。" />
+        </div>
       ) : (
-        <ul className="mt-md space-y-md">
-          {aiFeedback.map((f) => {
-            // 简单归类规则：解析/诊断/教练 → 对应评测集入口
-            const category = f.target.startsWith("diagnosis")
-              ? "诊断不准"
-              : f.target.startsWith("session")
-                ? "解析错误"
-                : "其他";
-            return (
-              <li key={f.id} className="rounded-md border border-border bg-surface p-md">
-                <div className="flex items-center justify-between">
-                  <Chip tone={f.helpful === false ? "warning" : "insight"}>
-                    {f.helpful === false ? "没帮助" : "有帮助"}
-                  </Chip>
-                  <span className="text-caption text-muted">{category}</span>
-                </div>
-                <p className="mt-xs text-caption text-muted-soft">
-                  {f.target} · {new Date(f.at).toLocaleString("zh-CN")}
-                  {f.reported ? " · 已举报" : ""}
-                </p>
-              </li>
-            );
-          })}
+        <ul className="mt-lg space-y-md">
+          {rows.map((t) => (
+            <li key={t.id} className="rounded-md border border-border bg-surface p-md">
+              <div className="flex items-center justify-between gap-sm">
+                <Chip tone={t.category === "其他" ? "neutral" : "warning"}>{t.category}</Chip>
+                <Chip tone={t.status === "已处理" ? "insight" : "neutral"}>{t.status}</Chip>
+              </div>
+              <p className="mt-sm text-body-sm text-body">{t.text}</p>
+              <p className="mt-xs text-caption text-muted-soft">
+                {t.type} · {new Date(t.created_at).toLocaleString("zh-CN")}
+                {t.has_screenshot === 1 ? " · 附截图" : ""}
+              </p>
+              {canWrite && t.status !== "已处理" ? (
+                <Button className="mt-sm" variant="secondary" onClick={() => resolve(t.id)}>
+                  标记已处理
+                </Button>
+              ) : null}
+            </li>
+          ))}
         </ul>
       )}
     </section>
   );
 }
 
-function ConfigTab() {
-  const { exams, plans, addExam, addPlan } = useAdminStore();
+function ConfigTab({ canWrite }: { canWrite: boolean }) {
+  const [exams, setExams] = useState<Array<{ id: number; name: string; region: string; date: string; subjects: string }>>([]);
+  const [plans, setPlans] = useState<Array<{ id: number; name: string; price: number; benefits: string }>>([]);
   const [examName, setExamName] = useState("");
   const [planName, setPlanName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (): Promise<void> => {
+    const [e, p] = await Promise.all([
+      adminApi<{ rows: typeof exams }>("/api/admin/exams"),
+      adminApi<{ rows: typeof plans }>("/api/admin/plans"),
+    ]);
+    if (e.ok) setExams(e.rows);
+    if (p.ok) setPlans(p.rows);
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const addExam = async (): Promise<void> => {
+    const r = await adminApi("/api/admin/exams", {
+      method: "POST",
+      body: JSON.stringify({ name: examName.trim() }),
+    });
+    if (r.ok) {
+      setExamName("");
+      void load();
+    } else {
+      setError(r.message ?? "新增失败");
+    }
+  };
+
+  const addPlan = async (): Promise<void> => {
+    const r = await adminApi("/api/admin/plans", {
+      method: "POST",
+      body: JSON.stringify({ name: planName.trim() }),
+    });
+    if (r.ok) {
+      setPlanName("");
+      void load();
+    } else {
+      setError(r.message ?? "新增失败");
+    }
+  };
+
   return (
     <section className="space-y-xl">
+      {error ? <p role="alert" className="text-body-sm text-error">{error}</p> : null}
+
       <div>
         <h2 className="text-title-lg text-ink">考试批次（F0350）</h2>
         <ul className="mt-md space-y-sm">
@@ -291,25 +416,20 @@ function ConfigTab() {
             </li>
           ))}
         </ul>
-        <div className="mt-md flex gap-sm">
-          <input
-            value={examName}
-            onChange={(e) => setExamName(e.target.value)}
-            aria-label="新考试名称"
-            placeholder="如 2027年省考"
-            className="h-10 flex-1 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
-          />
-          <Button
-            variant="secondary"
-            disabled={examName.trim() === ""}
-            onClick={() => {
-              addExam({ name: examName.trim(), region: "待定", date: "待定", subjects: "行测+申论" });
-              setExamName("");
-            }}
-          >
-            新增
-          </Button>
-        </div>
+        {canWrite ? (
+          <div className="mt-md flex gap-sm">
+            <input
+              value={examName}
+              onChange={(e) => setExamName(e.target.value)}
+              aria-label="新考试名称"
+              placeholder="如 2027年省考"
+              className="h-10 flex-1 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
+            />
+            <Button variant="secondary" disabled={examName.trim() === ""} onClick={addExam}>
+              新增
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div>
@@ -321,25 +441,20 @@ function ConfigTab() {
             </li>
           ))}
         </ul>
-        <div className="mt-md flex gap-sm">
-          <input
-            value={planName}
-            onChange={(e) => setPlanName(e.target.value)}
-            aria-label="新套餐名称"
-            placeholder="如 Pro 学生版"
-            className="h-10 flex-1 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
-          />
-          <Button
-            variant="secondary"
-            disabled={planName.trim() === ""}
-            onClick={() => {
-              addPlan({ name: planName.trim(), price: 29, benefits: "待定权益" });
-              setPlanName("");
-            }}
-          >
-            新增
-          </Button>
-        </div>
+        {canWrite ? (
+          <div className="mt-md flex gap-sm">
+            <input
+              value={planName}
+              onChange={(e) => setPlanName(e.target.value)}
+              aria-label="新套餐名称"
+              placeholder="如 Pro 学生版"
+              className="h-10 flex-1 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
+            />
+            <Button variant="secondary" disabled={planName.trim() === ""} onClick={addPlan}>
+              新增
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       <div>
@@ -379,22 +494,32 @@ function ConfigTab() {
   );
 }
 
-function AuditTab() {
-  const { auditLog } = useAdminStore();
+function AuditTab({ canRead }: { canRead: boolean }) {
+  const [rows, setRows] = useState<Array<{ at: string; actor: string; role: string; action: string }>>([]);
+
+  useEffect(() => {
+    if (!canRead) return;
+    void adminApi<{ rows: typeof rows }>("/api/admin/audit").then((d) => {
+      if (d.ok) setRows(d.rows);
+    });
+  }, [canRead]);
+
+  if (!canRead) {
+    return <EmptyState why="当前角色无审计查看权限。" action="审计仅运营与管理员可见（F0365）。" />;
+  }
+
   return (
     <section>
       <h2 className="text-title-lg text-ink">审计日志（F0365）</h2>
-      <p className="mt-xs text-caption text-muted">
-        记录题库状态变更、考试/套餐配置变更等高风险操作。
-      </p>
-      {auditLog.length === 0 ? (
+      <p className="mt-xs text-caption text-muted">服务端只增记录：含越权尝试。</p>
+      {rows.length === 0 ? (
         <p className="mt-lg text-body-sm text-muted">暂无记录。</p>
       ) : (
         <ul className="mt-md space-y-sm">
-          {auditLog.map((a, i) => (
+          {rows.map((a, i) => (
             <li key={i} className="rounded-md border border-border bg-surface p-md text-body-sm text-body">
               <span className="text-caption text-muted">
-                {new Date(a.at).toLocaleString("zh-CN")} · {a.actor}
+                {new Date(a.at).toLocaleString("zh-CN")} · {a.actor}（{a.role}）
               </span>
               <br />
               {a.action}

@@ -44,7 +44,7 @@
 
 1. 短信为 **mock 通道**：验证码随响应回显在登录页（GAP-6）；接短信服务商后删除响应中的 `mock.code` 字段即可，限流/冷却/锁定逻辑无需改动。
 2. 相册权限为 Web 端显式授权门（Web 无系统相册权限）；原生壳阶段替换为真实系统权限弹窗（GAP-7）。
-3. GAP-10：/admin 与 /aiops 为单机 mock；RBAC/审计/Provider 需服务端化。
+3. ~~GAP-10：/admin 与 /aiops 为单机 mock~~ **已服务端化（2026-08-31）**：员工登录 + 服务端 RBAC（越权 403）+ 只增审计 + 数据共享 SQLite；Provider 仍为 MockAiGateway，真实模型接入待商务与密钥。
 4. GAP-11：`data-correct` 测试钩子需构建开关。
 5. 诊断排序常量（GAP-8）为首版基线，需真实数据校准（C18/CL-10）。
 6. 性能：构建产物 First Load JS ≈ 102–117 kB（静态预渲染）；Lighthouse 真机抽查与动效 60fps 真机验证待补（§8.20）。

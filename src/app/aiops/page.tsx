@@ -1,21 +1,16 @@
 "use client";
 
 /**
- * AI 运营台（MVP 16 条：F0366–F0387）。
- * 评测是**真实的**：parser 评测集直接驱动 MockAiGateway 跑对抗/缺失/模糊用例，
- * 诊断评测集驱动 diagnose 引擎；回归门禁执行零容忍规则（Schema 失败 / 编造缺失）。
- * 配置与版本管理为 mock 持久化。
+ * AI 运营台（服务端化）：配置与评测存 SQLite（ai_config / eval_runs 表），
+ * 评测由服务端真实执行（/api/admin/aiops/eval），仅 aiops/admin 角色可读写（F0364）。
  */
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
-import { useAiopsStore } from "@/lib/aiops/store";
-import { MockAiGateway } from "@/lib/ai/gateway";
+import { adminApi, staffLogout, staffMe, type StaffIdentity } from "@/lib/auth/adminClient";
 import { getAiMetrics, summarizeAiCalls } from "@/lib/ai/metrics";
-import { diagnose } from "@/lib/diagnosis/engine";
-import type { BaselineSnapshot } from "@/lib/profile/store";
-import type { ExamGoal, ModuleId } from "@/lib/profile/types";
 
 const TABS = [
   ["model", "模型"],
@@ -25,13 +20,139 @@ const TABS = [
   ["budget", "预算"],
 ] as const;
 
+interface PromptVersion {
+  v: string;
+  status: "草稿" | "已发布" | "已回滚";
+  note: string;
+}
+
+interface EvalRunRow {
+  id: number;
+  suite: string;
+  pass_rate: number;
+  failures: string;
+  gate_verdict: string;
+  run_by: string;
+  at: string;
+}
+
+interface AioConfig {
+  routing: { parse: string; diagnose: string; coach: string };
+  daily_budget: number;
+  prompt_versions: PromptVersion[];
+  schema_versions: Array<{ v: string; note: string }>;
+}
+
+const MODELS = ["mock-parse-v1", "mock-diag-v1", "mock-coach-v1", "mock-parse-cand"];
+
 export default function AiOpsPage() {
+  const router = useRouter();
+  const [staff, setStaff] = useState<StaffIdentity | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [config, setConfig] = useState<AioConfig | null>(null);
+  const [evalRuns, setEvalRuns] = useState<EvalRunRow[]>([]);
+  const [running, setRunning] = useState<string | null>(null);
+  const [lastOutcome, setLastOutcome] = useState<{
+    suite: string;
+    passRate: number;
+    failures: string[];
+    gateVerdict: string;
+    results: Array<{ label: string; pass: boolean; detail: string }>;
+  } | null>(null);
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("eval");
+
+  const load = useCallback(async (): Promise<void> => {
+    const d = await adminApi<AioConfig & { evalRuns: EvalRunRow[] }>("/api/admin/aiops/config");
+    if (d.ok) {
+      setConfig({
+        routing: d.routing ?? { parse: "mock-parse-v1", diagnose: "mock-diag-v1", coach: "mock-coach-v1" },
+        daily_budget: Number(d.daily_budget ?? 500000),
+        prompt_versions: d.prompt_versions ?? [],
+        schema_versions: d.schema_versions ?? [],
+      });
+      setEvalRuns(d.evalRuns ?? []);
+    }
+  }, []);
+
+  useEffect(() => {
+    void staffMe().then((s) => {
+      if (!s || (s.role !== "aiops" && s.role !== "admin")) {
+        router.replace("/admin-login");
+        return;
+      }
+      setStaff(s);
+      void load().then(() => setLoading(false));
+    });
+  }, [router, load]);
+
+  const saveConfig = useCallback(
+    async (key: string, value: unknown): Promise<void> => {
+      await adminApi("/api/admin/aiops/config", {
+        method: "POST",
+        body: JSON.stringify({ key, value }),
+      });
+      await load();
+    },
+    [load],
+  );
+
+  const runEval = useCallback(
+    async (suite: "parser" | "diagnosis"): Promise<void> => {
+      setRunning(suite);
+      const r = await adminApi<{
+        suite: string;
+        passRate: number;
+        failures: string[];
+        gateVerdict: string;
+        results: Array<{ label: string; pass: boolean; detail: string }>;
+      }>("/api/admin/aiops/eval", {
+        method: "POST",
+        body: JSON.stringify({ suite }),
+      });
+      setRunning(null);
+      if (r.ok) {
+        setLastOutcome(r);
+        void load();
+      }
+    },
+    [load],
+  );
+
+  const metricsSummary = useMemo(() => summarizeAiCalls(), []);
+  const metricsCount = useMemo(() => getAiMetrics().length, []);
+
+  if (loading || !staff) {
+    return (
+      <main className="mx-auto max-w-[430px] px-margin-mobile pt-xl">
+        <p className="text-body-md text-muted">正在验证员工身份…</p>
+      </main>
+    );
+  }
+
+  const lastParser = [...evalRuns].reverse().find((r) => r.suite === "parser");
+  const lastDiag = [...evalRuns].reverse().find((r) => r.suite === "diagnosis");
+
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
-      <header className="flex items-baseline justify-between">
-        <h1 className="text-headline-xl text-ink">AI 运营台</h1>
+      <header className="flex items-baseline justify-between gap-sm">
+        <div>
+          <h1 className="text-headline-xl text-ink">AI 运营台</h1>
+          <p className="mt-xs text-caption text-muted">
+            {staff.display_name} · 配置与评测存服务端
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={async () => {
+            await staffLogout();
+            router.replace("/admin-login");
+          }}
+          className="text-caption text-muted underline-offset-2 hover:underline"
+        >
+          退出
+        </button>
       </header>
+
       <nav aria-label="AI运营台导航" className="mt-lg flex flex-wrap gap-sm">
         {TABS.map(([k, label]) => (
           <button
@@ -47,313 +168,225 @@ export default function AiOpsPage() {
           </button>
         ))}
       </nav>
-      <div className="mt-xl">
-        {tab === "model" ? <ModelTab /> : null}
-        {tab === "prompt" ? <PromptTab /> : null}
-        {tab === "eval" ? <EvalTab /> : null}
-        {tab === "monitor" ? <MonitorTab /> : null}
-        {tab === "budget" ? <BudgetTab /> : null}
+
+      <div className="mt-xl space-y-xl">
+        {tab === "model" && config ? (
+          <>
+            <section>
+              <h2 className="text-title-lg text-ink">模型路由（F0367）</h2>
+              <div className="mt-md space-y-md">
+                {(["parse", "diagnose", "coach"] as const).map((fn) => (
+                  <label key={fn} className="block">
+                    <span className="text-label-md text-muted">
+                      {fn === "parse" ? "截图解析" : fn === "diagnose" ? "提分诊断" : "教练对话"}
+                    </span>
+                    <select
+                      value={config.routing[fn]}
+                      onChange={(e) => void saveConfig("routing", { ...config.routing, [fn]: e.target.value })}
+                      className="mt-xs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
+                    >
+                      {MODELS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+              </div>
+            </section>
+            <Card>
+              <p className="text-label-md text-muted">版本锁定（F0368）</p>
+              <p className="mt-xs text-body-sm text-body">
+                已发布 Prompt 即锁定版本；回滚/发布记录进服务端审计。
+              </p>
+            </Card>
+          </>
+        ) : null}
+
+        {tab === "prompt" && config ? (
+          <>
+            <section>
+              <h2 className="text-title-lg text-ink">Prompt 版本（F0369）</h2>
+              <ul className="mt-md space-y-sm">
+                {config.prompt_versions.map((p) => (
+                  <li key={p.v} className="rounded-md border border-border bg-surface p-md">
+                    <div className="flex items-center justify-between gap-sm">
+                      <span className="text-body-sm text-ink">
+                        {p.v} · {p.note}
+                      </span>
+                      <Chip tone={p.status === "已发布" ? "insight" : p.status === "已回滚" ? "warning" : "neutral"}>
+                        {p.status}
+                      </Chip>
+                    </div>
+                    <div className="mt-sm">
+                      {p.status === "已发布" ? (
+                        <Button
+                          variant="tertiary"
+                          onClick={() =>
+                            void saveConfig(
+                              "prompt_versions",
+                              config.prompt_versions.map((x) =>
+                                x.v === p.v
+                                  ? { ...x, status: "已回滚" as const }
+                                  : x.v.split(" ")[0] === p.v.split(" ")[0] && x.status === "已回滚"
+                                    ? { ...x, status: "草稿" as const }
+                                    : x,
+                              ),
+                            )
+                          }
+                        >
+                          回滚
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="tertiary"
+                          onClick={() =>
+                            void saveConfig(
+                              "prompt_versions",
+                              config.prompt_versions.map((x) =>
+                                x.v === p.v
+                                  ? { ...x, status: "已发布" as const }
+                                  : x.v.split(" ")[0] === p.v.split(" ")[0] && x.status === "已发布"
+                                    ? { ...x, status: "已回滚" as const }
+                                    : x,
+                              ),
+                            )
+                          }
+                        >
+                          发布
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section>
+              <h2 className="text-title-lg text-ink">Schema 版本（F0371）</h2>
+              <ul className="mt-md space-y-sm">
+                {config.schema_versions.map((s) => (
+                  <li key={s.v} className="rounded-md border border-border bg-surface p-md text-body-sm text-body">
+                    {s.v} · {s.note}
+                  </li>
+                ))}
+              </ul>
+              <Button
+                className="mt-md"
+                variant="secondary"
+                onClick={() =>
+                  void saveConfig("schema_versions", [
+                    ...config.schema_versions,
+                    { v: `parse-schema v${config.schema_versions.length + 1}.0`, note: "字段扩展" },
+                  ])
+                }
+              >
+                新增 Schema 版本
+              </Button>
+            </section>
+          </>
+        ) : null}
+
+        {tab === "eval" ? (
+          <>
+            <section>
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-title-lg text-ink">Parser 评测集（F0372）</h2>
+                <Button variant="secondary" loading={running === "parser"} onClick={() => void runEval("parser")}>
+                  服务端运行
+                </Button>
+              </div>
+              {lastParser ? <EvalReport row={lastParser} /> : <p className="mt-md text-body-sm text-muted">未运行。</p>}
+              {lastOutcome?.suite === "parser" ? <CaseResults outcome={lastOutcome} /> : null}
+            </section>
+            <section>
+              <div className="flex items-baseline justify-between">
+                <h2 className="text-title-lg text-ink">诊断评测集（F0373）</h2>
+                <Button variant="secondary" loading={running === "diagnosis"} onClick={() => void runEval("diagnosis")}>
+                  服务端运行
+                </Button>
+              </div>
+              {lastDiag ? <EvalReport row={lastDiag} /> : <p className="mt-md text-body-sm text-muted">未运行。</p>}
+              {lastOutcome?.suite === "diagnosis" ? <CaseResults outcome={lastOutcome} /> : null}
+            </section>
+            <Card>
+              <p className="text-label-md text-muted">确定性 Grader（F0375）+ 回归门禁（F0378/F0379）</p>
+              <p className="mt-xs text-body-sm text-body">
+                Schema 完整性、缺失不编造、最弱≠最高优先均为程序断言；对抗/编造类失败零容忍直接拦截。
+              </p>
+            </Card>
+          </>
+        ) : null}
+
+        {tab === "monitor" ? (
+          <section className="space-y-lg">
+            <h2 className="text-title-lg text-ink">调用监控（本会话进程）</h2>
+            <div className="grid grid-cols-2 gap-md">
+              <Metric label="调用次数" value={String(metricsSummary.total)} />
+              <Metric label="成功率" value={`${Math.round(metricsSummary.successRate * 100)}%`} />
+              <Metric label="P50 / P95" value={`${metricsSummary.p50} / ${metricsSummary.p95} ms`} />
+              <Metric label="Schema 失败率" value={`${Math.round(metricsSummary.schemaFailRate * 100)}%`} />
+              <Metric label="用户纠正率（F0386）" value={`${Math.round(metricsSummary.correctionRate * 100)}%`} />
+              <Metric label="Token 合计（F0384）" value={String(metricsSummary.totalTokens)} />
+            </div>
+            <p className="text-caption text-muted">最近 {metricsCount} 条记录保存在进程内存；真实部署接入指标管道。</p>
+          </section>
+        ) : null}
+
+        {tab === "budget" && config ? (
+          <section>
+            <h2 className="text-title-lg text-ink">预算与保护（F0387）</h2>
+            <label className="mt-md block">
+              <span className="text-label-md text-muted">日 Token 预算</span>
+              <input
+                inputMode="numeric"
+                value={config.daily_budget}
+                onChange={(e) => void saveConfig("daily_budget", Number(e.target.value.replace(/[^\d]/g, "")) || 0)}
+                className="mt-xs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
+              />
+            </label>
+            <p className="mt-sm text-caption text-muted">
+              超过 100% 触发降级：暂停解析类调用，训练与复盘不受影响。
+            </p>
+          </section>
+        ) : null}
       </div>
     </main>
   );
 }
 
-function ModelTab() {
-  const { providers, routing, locked, setRouting } = useAiopsStore();
-  return (
-    <section className="space-y-xl">
-      <div>
-        <h2 className="text-title-lg text-ink">Provider（F0366）</h2>
-        <ul className="mt-md space-y-sm">
-          {providers.map((p) => (
-            <li key={p.id} className="rounded-md border border-border bg-surface p-md text-body-sm text-body">
-              {p.name} · 模型：{p.models.join("、")}
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div>
-        <h2 className="text-title-lg text-ink">模型路由（F0367）</h2>
-        <div className="mt-md space-y-md">
-          {(["parse", "diagnose", "coach"] as const).map((fn) => (
-            <label key={fn} className="block">
-              <span className="text-label-md text-muted">
-                {fn === "parse" ? "截图解析" : fn === "diagnose" ? "提分诊断" : "教练对话"}
-              </span>
-              <select
-                value={routing[fn]}
-                onChange={(e) => setRouting(fn, e.target.value)}
-                className="mt-xs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
-              >
-                {providers.flatMap((p) => p.models).map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
-        </div>
-      </div>
-      <div>
-        <h2 className="text-title-lg text-ink">版本锁定（F0368）</h2>
-        <p className="mt-md rounded-md border border-border bg-surface p-md text-body-sm text-body">
-          生产锁定：{locked.model} · 发布于 {new Date(locked.releasedAt).toLocaleDateString("zh-CN")}
-        </p>
-      </div>
-    </section>
-  );
-}
-
-function PromptTab() {
-  const { promptVersions, publishPrompt, rollbackPrompt, schemaVersions, addSchemaVersion } =
-    useAiopsStore();
-  return (
-    <section className="space-y-xl">
-      <div>
-        <h2 className="text-title-lg text-ink">Prompt 版本（F0369）</h2>
-        <ul className="mt-md space-y-sm">
-          {promptVersions.map((p) => (
-            <li key={p.v} className="rounded-md border border-border bg-surface p-md">
-              <div className="flex items-center justify-between">
-                <span className="text-body-sm text-ink">
-                  {p.v} · {p.note}
-                </span>
-                <Chip tone={p.status === "已发布" ? "insight" : p.status === "已回滚" ? "warning" : "neutral"}>
-                  {p.status}
-                </Chip>
-              </div>
-              <div className="mt-sm flex gap-sm">
-                {p.status !== "已发布" ? (
-                  <Button variant="tertiary" onClick={() => publishPrompt(p.v)}>
-                    发布
-                  </Button>
-                ) : (
-                  <Button variant="tertiary" onClick={() => rollbackPrompt(p.v)}>
-                    回滚
-                  </Button>
-                )}
-              </div>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div>
-        <h2 className="text-title-lg text-ink">Schema 版本（F0371）</h2>
-        <ul className="mt-md space-y-sm">
-          {schemaVersions.map((s) => (
-            <li key={s.v} className="rounded-md border border-border bg-surface p-md text-body-sm text-body">
-              {s.v} · {s.note}
-            </li>
-          ))}
-        </ul>
-        <Button
-          className="mt-md"
-          variant="secondary"
-          onClick={() => addSchemaVersion(`v${schemaVersions.length + 1}.0`, "字段扩展")}
-        >
-          新增 Schema 版本
-        </Button>
-      </div>
-    </section>
-  );
-}
-
-interface CaseResult {
-  label: string;
-  pass: boolean;
-  detail: string;
-}
-
-function EvalTab() {
-  const { evalRuns, recordEvalRun } = useAiopsStore();
-  const [running, setRunning] = useState(false);
-
-  const runParser = async (): Promise<void> => {
-    setRunning(true);
-    const gw = new MockAiGateway();
-    const results: CaseResult[] = [];
-    const normal = await gw.parseScoreScreenshot({ fileName: "eval-normal.png", sizeBytes: 10 });
-    results.push({
-      label: "正常截图",
-      pass: normal.totalScore != null && normal.modules.every((m) => m.score != null),
-      detail: `totalScore=${normal.totalScore}`,
-    });
-    const partial = await gw.parseScoreScreenshot({ fileName: "eval-partial.png", sizeBytes: 20 });
-    const missingFlagged = partial.modules.some((m) => m.score == null);
-    results.push({
-      label: "缺失字段（禁止编造）",
-      pass: missingFlagged && partial.totalScore == null,
-      detail: missingFlagged ? "缺失字段已标记 missing" : "错误：缺失字段被编造",
-    });
-    const lowconf = await gw.parseScoreScreenshot({ fileName: "eval-lowconf.png", sizeBytes: 30 });
-    results.push({
-      label: "低置信标记",
-      pass: Object.values(lowconf.confidence).includes("low"),
-      detail: "存在 low 置信字段",
-    });
-    let corruptThrew = false;
-    try {
-      await gw.parseScoreScreenshot({ fileName: "eval-corrupt.bin", sizeBytes: 1 });
-    } catch {
-      corruptThrew = true;
-    }
-    results.push({
-      label: "对抗样本（应失败而非硬编）",
-      pass: corruptThrew,
-      detail: corruptThrew ? "解析失败被正确抛出" : "错误：对抗样本被硬解析",
-    });
-    finish("parser", results);
-  };
-
-  const runDiagnosis = async (): Promise<void> => {
-    setRunning(true);
-    const results: CaseResult[] = [];
-    const goal: ExamGoal = {
-      type: "国考",
-      examName: "eval",
-      region: "eval",
-      examDate: "2026-11-29",
-      targetTotal: 108,
-      targetModules: {},
-    };
-    // 典型：达标但慢 → 速度机会应排第一
-    const speedBase = makeBaseline([["资料分析", 0.82, 120], ["言语理解", 0.7, 50]]);
-    const d1 = diagnose(speedBase, goal, null);
-    results.push({
-      label: "典型：速度机会优先",
-      pass: d1.opportunities[0]?.moduleId === "资料分析" && d1.opportunities[0]?.kind === "速度",
-      detail: `top=${d1.opportunities[0]?.moduleId ?? "无"}`,
-    });
-    // 边界：最弱项不得自动成为最高优先级（历史 Bug 回归）
-    const weakBase = makeBaseline([["数量关系", 0.3, 100], ["资料分析", 0.85, 125]]);
-    const d2 = diagnose(weakBase, goal, null);
-    results.push({
-      label: "边界：最弱≠最高优先",
-      pass: d2.opportunities[0]?.moduleId !== "数量关系",
-      detail: `top=${d2.opportunities[0]?.moduleId ?? "无"}`,
-    });
-    // 无数据不下结论
-    const empty = diagnose(makeBaseline([]), goal, null);
-    results.push({
-      label: "空数据：不出结论",
-      pass: empty.opportunities.length === 0,
-      detail: `机会数=${empty.opportunities.length}`,
-    });
-    finish("diagnosis", results);
-  };
-
-  const finish = (suite: "parser" | "diagnosis", results: CaseResult[]): void => {
-    const passed = results.filter((r) => r.pass).length;
-    const schemaFail = results.filter((r) => r.label.includes("对抗")).filter((r) => !r.pass).length;
-    const fabrication = results.filter((r) => r.label.includes("编造")).filter((r) => !r.pass).length;
-    recordEvalRun({
-      suite,
-      passRate: Math.round((passed / results.length) * 100),
-      failures: results.filter((r) => !r.pass).map((r) => r.label),
-      // F0379 零容忍：对抗失败（=Schema 失败/幻觉类）直接 fail
-      gateVerdict: schemaFail === 0 && fabrication === 0 ? "通过" : "拦截",
-    });
-    setRunning(false);
-  };
-
-  const lastParser = [...evalRuns].reverse().find((r) => r.suite === "parser");
-  const lastDiag = [...evalRuns].reverse().find((r) => r.suite === "diagnosis");
-
-  return (
-    <section className="space-y-xl">
-      <div>
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-title-lg text-ink">Parser 评测集（F0372）</h2>
-          <Button variant="secondary" disabled={running} onClick={runParser}>
-            运行
-          </Button>
-        </div>
-        {lastParser ? <EvalReport run={lastParser} /> : <p className="mt-md text-body-sm text-muted">未运行。</p>}
-      </div>
-      <div>
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-title-lg text-ink">诊断评测集（F0373）</h2>
-          <Button variant="secondary" disabled={running} onClick={runDiagnosis}>
-            运行
-          </Button>
-        </div>
-        {lastDiag ? <EvalReport run={lastDiag} /> : <p className="mt-md text-body-sm text-muted">未运行。</p>}
-      </div>
-      <Card>
-        <p className="text-label-md text-muted">确定性 Grader（F0375）</p>
-        <p className="mt-xs text-body-sm text-body">
-          Schema 完整性、字段缺失不编造、数值范围、禁答行为均为程序化断言，不依赖模型自评。
-        </p>
-      </Card>
-    </section>
-  );
-}
-
-function EvalReport({
-  run,
-}: {
-  run: { at: string; suite: string; passRate: number; failures: string[]; gateVerdict: string };
-}) {
+function EvalReport({ row }: { row: EvalRunRow }) {
   return (
     <div className="mt-md rounded-md border border-border bg-surface p-md">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-sm">
         <span className="text-label-md text-muted">
-          {new Date(run.at).toLocaleString("zh-CN")} · 通过率 {run.passRate}%
+          {new Date(row.at).toLocaleString("zh-CN")} · 通过率 {row.pass_rate}% · {row.run_by}
         </span>
-        <Chip tone={run.gateVerdict === "通过" ? "insight" : "warning"}>门禁 {run.gateVerdict}</Chip>
+        <Chip tone={row.gate_verdict === "通过" ? "insight" : "warning"}>门禁 {row.gate_verdict}</Chip>
       </div>
-      {run.failures.length > 0 ? (
-        <p className="mt-xs text-caption text-warning">失败：{run.failures.join("、")}</p>
+      {row.failures !== "[]" ? (
+        <p className="mt-xs text-caption text-warning">失败：{row.failures.replace(/[[\]"]/g, "")}</p>
       ) : null}
     </div>
   );
 }
 
-function MonitorTab() {
-  const metrics = useMemo(() => getAiMetrics(), []);
-  const s = summarizeAiCalls();
+function CaseResults({
+  outcome,
+}: {
+  outcome: { results: Array<{ label: string; pass: boolean; detail: string }> };
+}) {
   return (
-    <section className="space-y-lg">
-      <h2 className="text-title-lg text-ink">调用监控（本会话）</h2>
-      <div className="grid grid-cols-2 gap-md">
-        <Metric label="调用次数" value={String(s.total)} />
-        <Metric label="成功率" value={`${Math.round(s.successRate * 100)}%`} />
-        <Metric label="P50 / P95" value={`${s.p50} / ${s.p95} ms`} />
-        <Metric label="Schema 失败率" value={`${Math.round(s.schemaFailRate * 100)}%`} />
-        <Metric label="用户纠正率（F0386）" value={`${Math.round(s.correctionRate * 100)}%`} />
-        <Metric label="Token 合计（F0384）" value={String(s.totalTokens)} />
-      </div>
-      <p className="text-caption text-muted">
-        最近 {metrics.length} 条调用记录保存在进程内存；真实部署接入指标管道。
-      </p>
-    </section>
-  );
-}
-
-function BudgetTab() {
-  const { dailyBudget, setDailyBudget } = useAiopsStore();
-  const s = summarizeAiCalls();
-  const usedPct = Math.min(100, Math.round((s.totalTokens / Math.max(dailyBudget, 1)) * 100));
-  return (
-    <section>
-      <h2 className="text-title-lg text-ink">预算与保护（F0387）</h2>
-      <label className="mt-md block">
-        <span className="text-label-md text-muted">日 Token 预算</span>
-        <input
-          inputMode="numeric"
-          value={dailyBudget}
-          onChange={(e) => setDailyBudget(Number(e.target.value.replace(/[^\d]/g, "")) || 0)}
-          className="mt-xs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
-        />
-      </label>
-      <div className="mt-lg h-2 w-full rounded-full bg-surface-strong">
-        <div className="h-full rounded-full bg-primary" style={{ width: `${usedPct}%` }} />
-      </div>
-      <p className="mt-sm text-caption text-muted">
-        本会话已用 {s.totalTokens} tokens（{usedPct}%）。超过 100% 触发降级：暂停解析类调用，训练与复盘不受影响。
-      </p>
-    </section>
+    <ul className="mt-md space-y-xs">
+      {outcome.results.map((r) => (
+        <li key={r.label} className="flex items-start justify-between gap-sm rounded-sm bg-surface-soft p-md text-caption">
+          <span className="text-body">
+            {r.pass ? "✓" : "✗"} {r.label}
+            <span className="ml-sm text-muted">{r.detail}</span>
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -364,21 +397,4 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="text-caption text-muted">{label}</p>
     </div>
   );
-}
-
-/** 构造评测用基线 */
-function makeBaseline(rows: Array<[ModuleId, number, number | null]>): BaselineSnapshot {
-  return {
-    computedAt: "eval",
-    confidence: "高",
-    dataNote: "",
-    modules: rows.map(([id, acc, sec]) => ({
-      id,
-      accuracy: acc,
-      accuracyLow: acc - 0.03,
-      accuracyHigh: acc + 0.03,
-      secondsPerQuestion: sec,
-      sampleQuestions: 200,
-    })),
-  };
 }

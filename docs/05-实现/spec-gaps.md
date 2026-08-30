@@ -81,11 +81,16 @@
 - **规范出处**：F0105 任务分解、F0113 预计时长要求把目标拆成可完成训练单元并给出耗时，未给每题分钟数。
 - **补充**（`src/lib/prescription/engine.ts`）：言语 0.9 / 判断 1.2 / 数量 1.8 / 资料 1.5 / 常识 0.5 分钟每题；单任务时长钳制在 10–45 分钟，首项占预算 60%、后续各 30%，余量 ≥10 分钟时补一项 15 分钟错题复盘。
 
-## GAP-10 · 管理后台与 AI 运营台为本机 mock 面板
+## GAP-10 · 管理后台与 AI 运营台（2026-08-31 已服务端化）
 
-- **规范出处**：功能清单要求用户查询（F0335）、RBAC（F0364）、审计（F0365）、Provider/路由/版本管理（F0366–F0368）等后台能力，MVP 无服务端。
-- **补充**：`/admin` 与 `/aiops` 为**单机 mock 控制台**——交互真实读写 localStorage（admin/aiops store），审计日志记录本地操作，RBAC 为静态权限矩阵展示。**这是演示级实现，不是生产后台**；真实部署需要：服务端 RBAC + 真实鉴权、集中审计、真实 Provider 接入。
-- 其中真实生效的部分：评测集（F0372/0373）直接驱动 `MockAiGateway` 与 `diagnose` 引擎执行确定性断言；回归门禁（F0378/0379）执行零容忍规则；调用指标（F0382–F0386）来自 `src/lib/ai/metrics.ts` 进程内采集，解析对抗样本会真实使解析失败。
+- **规范出处**：功能清单用户查询（F0335）、RBAC（F0364）、审计（F0365）、Provider/路由/版本管理（F0366–F0368）等后台能力。
+- **实现**（2026-08-31，此前为 localStorage 单机 mock）：
+  - **员工账号体系**：`staff` 表（scrypt 密码哈希 + 角色）与 `staff_tokens`；`/admin-login` 员工登录，与考生登录完全独立。种子员工（模拟数据）：`ops01/Ops@123456`（运营）、`teacher01/Teach@123456`（教研）、`support01/Support@123456`（客服）、`aiops01/Aiops@123456`（AI运营）、`boss/Boss@123456`（管理员）。
+  - **RBAC 强校验在服务端**（F0364）：能力矩阵定义于 `src/lib/server/admin.ts`（bank/users/tickets/config/audit/aiops 读写分离），每个 `/api/admin/*` 路由按 capability 校验，越权返回 403 并写入审计；前端仅按角色隐藏写操作。
+  - **审计只增日志**（F0365）：题库状态变更、配置变更、评测执行、越权尝试全部落 `audit_log` 表，清浏览器数据不可删除。
+  - **数据共享**：题库状态（`question_status`，下线题经 `/api/questions/disabled` 对外、组卷真实过滤）、自建题（`questions_custom`）、工单（`tickets`，用户反馈经 `POST /api/feedback` 入库）、考试/套餐（`exams`/`plans`）、AI 配置（`ai_config`）、评测历史（`eval_runs`）全部迁服务端。
+  - **评测服务端执行**：`POST /api/admin/aiops/eval` 在服务器真实跑 parser/诊断用例（对抗样本真实触发解析失败），结果与门禁判定入库。
+- **仍然保留的边界**：Provider 仍是 MockAiGateway（无真实模型调用）；员工登录无验证码/找回（演示级）；管理端无操作并发控制（单团队规模够用）。
 
 ## GAP-11 · 测试钩子与账号类条目的 MVP 状态
 
