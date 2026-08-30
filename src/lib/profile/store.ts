@@ -11,12 +11,29 @@ import type {
 } from "./types";
 import type { Diagnosis } from "@/lib/diagnosis/engine";
 import type { Prescription } from "@/lib/prescription/engine";
+import type { WrongBookEntry } from "@/lib/errorcause/engine";
+
+/** 一次训练会话（CL-03 作答轨迹） */
+export interface TrainingSession {
+  id: string;
+  /** 关联处方任务；自由训练为 null */
+  taskId: string | null;
+  moduleId: string;
+  questionIds: string[];
+  answers: Record<string, { choice: number | null; seconds: number; skipped: boolean }>;
+  startedAt: string;
+  finishedAt: string | null;
+  /** 会话总用时（秒） */
+  totalSeconds: number;
+  /** 关联的错题复测条目（复测会话结束时回写验证状态） */
+  wrongIds?: string[];
+}
 
 /** 一次已确认入库的模考成绩（数据接入与建档 产物） */
 export interface ScoreImport {
   id: string;
   /** F0047 来源标签 */
-  source: "截图" | "手工录入";
+  source: "截图" | "手工录入" | "系统训练";
   platform: string;
   examLabel: string;
   importedAt: string;
@@ -56,6 +73,10 @@ interface ProfileState {
   prescription: Prescription | null;
   /** 任务完成记录（F0115：记录结果而非仅勾选） */
   taskResults: TaskResult[];
+  /** 训练会话（作答轨迹持久化：禁止中断丢失已作答） */
+  sessions: TrainingSession[];
+  /** 错题本（F0149 答错自动入库） */
+  wrongBook: WrongBookEntry[];
   /** 今日临时可用时间覆盖（F0054） */
   todayMinutesOverride: number | null;
   /** Horizon Reveal 当天是否已播放（§7.4/§8.9 一天只完整执行一次） */
@@ -65,10 +86,14 @@ interface ProfileState {
   setConditions: (c: LearningConditions) => void;
   setNickname: (n: string) => void;
   addImport: (i: ScoreImport) => void;
+  upsertImport: (i: ScoreImport) => void;
   setBaseline: (b: BaselineSnapshot) => void;
   setDiagnosis: (d: Diagnosis) => void;
   setPrescription: (p: Prescription) => void;
   addTaskResult: (r: TaskResult) => void;
+  upsertSession: (s: TrainingSession) => void;
+  addWrongEntries: (e: WrongBookEntry[]) => void;
+  updateWrongEntry: (questionId: string, patch: Partial<WrongBookEntry>) => void;
   setTodayMinutesOverride: (m: number | null) => void;
   markRevealed: (date: string) => void;
   reset: () => void;
@@ -103,6 +128,8 @@ export const useProfileStore = create<ProfileState>()(
       diagnosis: null,
       prescription: null,
       taskResults: [],
+      sessions: [],
+      wrongBook: [],
       todayMinutesOverride: null,
       lastRevealDate: null,
       setAgreements: (agreements) =>
@@ -112,10 +139,32 @@ export const useProfileStore = create<ProfileState>()(
         set((s) => ({ profile: { ...s.profile, conditions } })),
       setNickname: (nickname) => set((s) => ({ profile: { ...s.profile, nickname } })),
       addImport: (imp) => set((s) => ({ imports: [...s.imports, imp] })),
+      upsertImport: (imp) =>
+        set((s) => {
+          const rest = s.imports.filter((x) => x.id !== imp.id);
+          return { imports: [...rest, imp] };
+        }),
       setBaseline: (baseline) => set({ baseline }),
       setDiagnosis: (diagnosis) => set({ diagnosis }),
       setPrescription: (prescription) => set({ prescription }),
       addTaskResult: (r) => set((s) => ({ taskResults: [...s.taskResults, r] })),
+      upsertSession: (session) =>
+        set((s) => {
+          const rest = s.sessions.filter((x) => x.id !== session.id);
+          return { sessions: [...rest, session] };
+        }),
+      addWrongEntries: (entries) =>
+        set((s) => {
+          const known = new Set(s.wrongBook.map((w) => w.questionId));
+          const fresh = entries.filter((e) => !known.has(e.questionId));
+          return { wrongBook: [...s.wrongBook, ...fresh] };
+        }),
+      updateWrongEntry: (questionId, patch) =>
+        set((s) => ({
+          wrongBook: s.wrongBook.map((w) =>
+            w.questionId === questionId ? { ...w, ...patch } : w,
+          ),
+        })),
       setTodayMinutesOverride: (todayMinutesOverride) => set({ todayMinutesOverride }),
       markRevealed: (lastRevealDate) => set({ lastRevealDate }),
       reset: () =>
@@ -126,6 +175,8 @@ export const useProfileStore = create<ProfileState>()(
           diagnosis: null,
           prescription: null,
           taskResults: [],
+          sessions: [],
+          wrongBook: [],
           todayMinutesOverride: null,
           lastRevealDate: null,
         }),

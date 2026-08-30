@@ -106,7 +106,8 @@ function taskFor(op: Opportunity, minutesCap: number, priority: TaskPriority): P
   const minutes = Math.max(10, Math.min(minutesCap, 45));
   if (minutes < 10) return null;
   const perQ = MINUTES_PER_QUESTION[op.moduleId];
-  const questionCount = Math.max(5, Math.floor(minutes / perQ));
+  // 题量钳制在 5–12：与种子题组规模匹配，单次训练保持专注（§11.6）
+  const questionCount = Math.max(5, Math.min(12, Math.floor(minutes / perQ)));
 
   if (op.kind === "速度") {
     return {
