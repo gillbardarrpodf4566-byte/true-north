@@ -217,6 +217,13 @@ export default function ProgressPage() {
             查看本周复盘 ›
           </Link>
         </Card>
+
+        {/* V1 选岗入口（§10.1 进展域） */}
+        <Card className="text-center">
+          <Link href="/jobs" className="text-label-md text-primary">
+            智能选岗（资格匹配 + 冲稳保候选）›
+          </Link>
+        </Card>
       </div>
     </main>
   );

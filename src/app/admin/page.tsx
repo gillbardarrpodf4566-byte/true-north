@@ -360,17 +360,22 @@ function TicketsTab({ canWrite }: { canWrite: boolean }) {
 function ConfigTab({ canWrite }: { canWrite: boolean }) {
   const [exams, setExams] = useState<Array<{ id: number; name: string; region: string; date: string; subjects: string }>>([]);
   const [plans, setPlans] = useState<Array<{ id: number; name: string; price: number; benefits: string }>>([]);
+  const [positions, setPositions] = useState<Array<{ qid: string; name: string; source_updated_at: string }>>([]);
+  const [importText, setImportText] = useState("");
+  const [report, setReport] = useState<string | null>(null);
   const [examName, setExamName] = useState("");
   const [planName, setPlanName] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async (): Promise<void> => {
-    const [e, p] = await Promise.all([
+    const [e, p, pos] = await Promise.all([
       adminApi<{ rows: typeof exams }>("/api/admin/exams"),
       adminApi<{ rows: typeof plans }>("/api/admin/plans"),
+      adminApi<{ rows: typeof positions }>("/api/admin/positions"),
     ]);
     if (e.ok) setExams(e.rows);
     if (p.ok) setPlans(p.rows);
+    if (pos.ok) setPositions(pos.rows);
   }, []);
 
   useEffect(() => {
@@ -454,6 +459,59 @@ function ConfigTab({ canWrite }: { canWrite: boolean }) {
               新增
             </Button>
           </div>
+        ) : null}
+      </div>
+
+      <div>
+        <h2 className="text-title-lg text-ink">职位库（F0352–F0355）</h2>
+        <p className="mt-xs text-caption text-muted">
+          当前 {positions.length} 个职位；每条数据要求来源与更新时间（F0354）。
+        </p>
+        <ul className="mt-md space-y-xxs text-caption text-body">
+          {positions.slice(0, 6).map((p) => (
+            <li key={p.qid}>
+              {p.qid} · {p.name} · 来源更新 {p.source_updated_at}
+            </li>
+          ))}
+          {positions.length > 6 ? <li className="text-muted-soft">…其余 {positions.length - 6} 条</li> : null}
+        </ul>
+        {canWrite ? (
+          <details className="mt-md">
+            <summary className="cursor-pointer text-body-sm text-primary">批量导入职位表（JSON，F0352）</summary>
+            <textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={5}
+              aria-label="职位 JSON"
+              placeholder='[{"id":"job-101","name":"…","department":"…","region":"…","minEducation":"本科","majorCategories":["计算机类"],"recruiting":2,"sourceName":"2026职位表","sourceUpdatedAt":"2026-08-31"}]'
+              className="mt-sm w-full rounded-sm border border-border-strong bg-surface p-md text-caption text-ink"
+            />
+            <Button
+              className="mt-sm"
+              variant="secondary"
+              disabled={importText.trim() === ""}
+              onClick={async () => {
+                let rows: unknown;
+                try {
+                  rows = JSON.parse(importText);
+                } catch {
+                  setReport("JSON 解析失败，请检查格式。");
+                  return;
+                }
+                const r = await adminApi<{ inserted?: number; problems?: string[]; message?: string }>(
+                  "/api/admin/positions",
+                  { method: "POST", body: JSON.stringify({ rows }) },
+                );
+                setReport(r.message ?? (r.ok ? "导入成功" : "导入失败"));
+                if (r.ok) void load();
+              }}
+            >
+              校验并导入
+            </Button>
+          </details>
+        ) : null}
+        {report ? (
+          <pre className="mt-sm whitespace-pre-wrap rounded-sm bg-surface-soft p-md text-caption text-body">{report}</pre>
         ) : null}
       </div>
 

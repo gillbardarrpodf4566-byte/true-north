@@ -96,6 +96,9 @@ interface ProfileState {
   membership: Membership;
   /** 收藏的题（F0134） */
   favorites: string[];
+  /** 选岗（V1 CL-08）：资格建档与收藏（F0257/F0273） */
+  jobProfile: import("@/lib/jobs/types").JobSeekerProfile | null;
+  jobFavorites: string[];
   /** 申论作答与批改（V1 CL-05） */
   essaySubmissions: EssaySubmission[];
   essayGrades: Record<string, import("@/lib/essay/types").EssayGrade>;
@@ -126,6 +129,8 @@ interface ProfileState {
   addAiFeedback: (f: { target: string; helpful: boolean | null; reported: boolean; reason: string }) => void;
   purchaseMembership: (plan: Membership["plan"], ok: boolean) => void;
   toggleFavorite: (questionId: string) => void;
+  setJobProfile: (p: import("@/lib/jobs/types").JobSeekerProfile) => void;
+  toggleJobFavorite: (qid: string) => void;
   addEssaySubmission: (
     s: import("@/lib/essay/types").EssaySubmission,
     q: import("@/lib/essay/types").EssayQuestion,
@@ -195,6 +200,8 @@ export const useProfileStore = create<ProfileState>()(
       aiFeedback: [],
       membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, orders: [] },
       favorites: [],
+      jobProfile: null,
+      jobFavorites: [],
       essaySubmissions: [],
       essayGrades: {},
       essayAbilities: [],
@@ -265,6 +272,13 @@ export const useProfileStore = create<ProfileState>()(
           favorites: s.favorites.includes(questionId)
             ? s.favorites.filter((f) => f !== questionId)
             : [...s.favorites, questionId],
+        })),
+      setJobProfile: (jobProfile) => set({ jobProfile }),
+      toggleJobFavorite: (qid) =>
+        set((s) => ({
+          jobFavorites: s.jobFavorites.includes(qid)
+            ? s.jobFavorites.filter((f) => f !== qid)
+            : [...s.jobFavorites, qid],
         })),
       addEssaySubmission: (sub, q, grade) =>
         set((s) => {

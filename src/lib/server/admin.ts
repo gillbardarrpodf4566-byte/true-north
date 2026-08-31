@@ -243,6 +243,95 @@ export function addPlan(p: { name: string; price: number; benefits: string }, st
   audit(staff, `新增会员套餐 ${p.name}`);
 }
 
+// ---------- 职位库（F0352 批量导入 / F0354 来源 / F0355 历史数据） ----------
+
+export interface PositionRow {
+  qid: string;
+  name: string;
+  department: string;
+  region: string;
+  unit_level: string;
+  recruiting: number;
+  min_education: string;
+  major_categories: string;
+  political_requirement: string;
+  requires_grassroots: number;
+  fresh_only: number;
+  history: string;
+  source_name: string;
+  source_file: string;
+  source_updated_at: string;
+}
+
+export function listPositions(): PositionRow[] {
+  return getDb()
+    .prepare("SELECT * FROM job_positions ORDER BY qid")
+    .all() as unknown as PositionRow[];
+}
+
+export function upsertPositions(
+  rows: Array<Record<string, unknown>>,
+  staff: StaffRow,
+): { inserted: number; problems: string[] } {
+  const problems: string[] = [];
+  let inserted = 0;
+  const ins = getDb().prepare(
+    `INSERT INTO job_positions
+     (qid, name, department, region, unit_level, recruiting, min_education, major_categories,
+      political_requirement, requires_grassroots, fresh_only, history, source_name, source_file, source_updated_at)
+     VALUES (@qid, @name, @department, @region, @unit_level, @recruiting, @min_education, @major_categories,
+      @political_requirement, @requires_grassroots, @fresh_only, @history, @source_name, @source_file, @source_updated_at)
+     ON CONFLICT(qid) DO UPDATE SET
+      name=excluded.name, department=excluded.department, region=excluded.region,
+      unit_level=excluded.unit_level, recruiting=excluded.recruiting, min_education=excluded.min_education,
+      major_categories=excluded.major_categories, political_requirement=excluded.political_requirement,
+      requires_grassroots=excluded.requires_grassroots, fresh_only=excluded.fresh_only,
+      history=excluded.history, source_name=excluded.source_name, source_file=excluded.source_file,
+      source_updated_at=excluded.source_updated_at`,
+  );
+  rows.forEach((r, i) => {
+    const get = (k: string): string => String(r[k] ?? "").trim();
+    for (const key of ["id", "name", "department", "region", "minEducation", "majorCategories"]) {
+      if (get(key) === "") problems.push(`第 ${i + 1} 条缺少 ${key}`);
+    }
+    if (problems.length > 0) return;
+    const qid = get("id");
+    ins.run({
+      qid,
+      name: get("name"),
+      department: get("department"),
+      region: get("region") || "待定",
+      unit_level: get("unitLevel") || "待定",
+      recruiting: Number(r.recruiting) || 1,
+      min_education: get("minEducation"),
+      major_categories: JSON.stringify(
+        Array.isArray(r.majorCategories) ? r.majorCategories.map(String) : get("majorCategories").split(/[、,，]/).filter(Boolean),
+      ),
+      political_requirement: get("politicalRequirement") || "群众",
+      requires_grassroots: r.requiresGrassroots === true || get("requiresGrassroots") === "true" ? 1 : 0,
+      fresh_only: r.freshOnly === true || get("freshOnly") === "true" ? 1 : 0,
+      history: JSON.stringify(Array.isArray(r.history) ? r.history : []),
+      source_name: get("sourceName") || "未标注来源",
+      source_file: get("sourceFile") || "unknown",
+      source_updated_at: get("sourceUpdatedAt") || new Date().toISOString().slice(0, 10),
+    });
+    inserted += 1;
+  });
+  audit(staff, `职位表导入：成功 ${inserted} 条，失败 ${problems.length} 条`);
+  return { inserted, problems };
+}
+
+export function listExamNodes(): Array<{ id: number; exam_name: string; kind: string; date: string }> {
+  return getDb()
+    .prepare("SELECT * FROM exam_nodes ORDER BY date")
+    .all() as Array<{ id: number; exam_name: string; kind: string; date: string }>;
+}
+
+export function addExamNode(examName: string, kind: string, date: string, staff: StaffRow): void {
+  getDb().prepare("INSERT INTO exam_nodes (exam_name, kind, date) VALUES (?, ?, ?)").run(examName, kind, date);
+  audit(staff, `新增考试节点 ${examName}·${kind} ${date}`);
+}
+
 // ---------- AI 配置与评测（F0366–F0387 的服务端真源） ----------
 
 export function getAiConfig(key: string): unknown {

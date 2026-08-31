@@ -132,6 +132,36 @@ function open(): DatabaseSync {
       run_by TEXT NOT NULL,
       at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS job_positions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      qid TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      department TEXT NOT NULL,
+      region TEXT NOT NULL,
+      unit_level TEXT NOT NULL,
+      recruiting INTEGER NOT NULL,
+      min_education TEXT NOT NULL,
+      major_categories TEXT NOT NULL,
+      political_requirement TEXT NOT NULL,
+      requires_grassroots INTEGER NOT NULL,
+      fresh_only INTEGER NOT NULL,
+      history TEXT NOT NULL,
+      source_name TEXT NOT NULL,
+      source_file TEXT NOT NULL,
+      source_updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS exam_nodes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      exam_name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      date TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS job_favorites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_key TEXT NOT NULL,
+      qid TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
   `);
   seedIfEmpty(db);
   globalThis.__jiananDb = db;
@@ -221,8 +251,118 @@ function seedIfEmpty(db: DatabaseSync): void {
       "system",
       now,
     );
+    ins.run(
+      "essay_rubric_check",
+      JSON.stringify({ note: "申论 Rubric 内置于 src/lib/essay/bank.ts；后台维护入口见 /admin 申论管理" }),
+      "system",
+      now,
+    );
+  }
+
+  // 职位库种子（模拟数据，F0352/F0354：来源文件 + 更新时间）
+  if ((db.prepare("SELECT COUNT(*) AS n FROM job_positions").get() as { n: number }).n === 0) {
+    const ins = db.prepare(
+      `INSERT INTO job_positions
+       (qid, name, department, region, unit_level, recruiting, min_education, major_categories,
+        political_requirement, requires_grassroots, fresh_only, history, source_name, source_file, source_updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    for (const p of SEED_POSITIONS_FOR_DB) {
+      ins.run(
+        p.id,
+        p.name,
+        p.department,
+        p.region,
+        p.unitLevel,
+        p.recruiting,
+        p.minEducation,
+        JSON.stringify(p.majorCategories),
+        p.politicalRequirement,
+        p.requiresGrassroots ? 1 : 0,
+        p.freshOnly ? 1 : 0,
+        JSON.stringify(p.history),
+        p.source.name,
+        p.source.file,
+        p.source.updatedAt,
+      );
+    }
+  }
+  if ((db.prepare("SELECT COUNT(*) AS n FROM exam_nodes").get() as { n: number }).n === 0) {
+    const ins = db.prepare("INSERT INTO exam_nodes (exam_name, kind, date) VALUES (?, ?, ?)");
+    ins.run("2026年国考", "报名", "2026-10-15");
+    ins.run("2026年国考", "审核", "2026-10-26");
+    ins.run("2026年国考", "缴费", "2026-11-05");
+    ins.run("2026年国考", "准考证", "2026-11-24");
+    ins.run("2026年国考", "笔试", "2026-11-29");
   }
 }
+
+/** 与 src/lib/jobs/engine.ts 的 SEED_POSITIONS 同源（避免跨端导入 server 文件） */
+const SEED_POSITIONS_FOR_DB = [
+  {
+    id: "job-001", name: "市税务局一级行政执法员", department: "市税务局", region: "广州市",
+    unitLevel: "市级", recruiting: 2, minEducation: "本科",
+    majorCategories: ["经济学类", "计算机类"], politicalRequirement: "中共党员",
+    requiresGrassroots: false, freshOnly: false,
+    history: [
+      { year: 2024, recruited: 2, interviewScore: 131.2, applicants: 96 },
+      { year: 2025, recruited: 3, interviewScore: 128.6, applicants: 118 },
+    ],
+    source: { name: "2026 国考职位表（官方）", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15" },
+  },
+  {
+    id: "job-002", name: "区统计局统计分析岗", department: "区统计局", region: "佛山市",
+    unitLevel: "区县级", recruiting: 1, minEducation: "本科",
+    majorCategories: ["统计学类", "经济学类"], politicalRequirement: "群众",
+    requiresGrassroots: false, freshOnly: true,
+    history: [
+      { year: 2024, recruited: 1, interviewScore: 124.5, applicants: 61 },
+      { year: 2025, recruited: 1, interviewScore: 126.8, applicants: 74 },
+    ],
+    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20" },
+  },
+  {
+    id: "job-003", name: "街道办综合管理岗", department: "某街道办事处", region: "广州市",
+    unitLevel: "乡镇街道", recruiting: 3, minEducation: "本科",
+    majorCategories: ["不限"], politicalRequirement: "群众",
+    requiresGrassroots: true, freshOnly: false,
+    history: [
+      { year: 2024, recruited: 3, interviewScore: 118.9, applicants: 142 },
+      { year: 2025, recruited: 2, interviewScore: 121.4, applicants: 158 },
+    ],
+    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20" },
+  },
+  {
+    id: "job-004", name: "市委办公室文秘岗", department: "市委办公室", region: "武汉市",
+    unitLevel: "市级", recruiting: 1, minEducation: "硕士",
+    majorCategories: ["中国语言文学类", "法学类"], politicalRequirement: "中共党员",
+    requiresGrassroots: true, freshOnly: false,
+    history: [{ year: 2025, recruited: 1, interviewScore: 138.2, applicants: 203 }],
+    source: { name: "2026 选调职位表（官方）", file: "2026-xd-positions.xlsx", updatedAt: "2026-09-01" },
+  },
+  {
+    id: "job-005", name: "县市场监管局执法岗", department: "县市场监管局", region: "韶关市",
+    unitLevel: "乡镇街道", recruiting: 4, minEducation: "大专",
+    majorCategories: ["不限"], politicalRequirement: "群众",
+    requiresGrassroots: false, freshOnly: false,
+    history: [
+      { year: 2024, recruited: 4, interviewScore: 108.3, applicants: 88 },
+      { year: 2025, recruited: 5, interviewScore: 110.1, applicants: 95 },
+    ],
+    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30" },
+  },
+  {
+    id: "job-006", name: "市大数据管理局信息岗", department: "市大数据管理局", region: "深圳市",
+    unitLevel: "市级", recruiting: 2, minEducation: "本科",
+    majorCategories: ["计算机类", "统计学类"], politicalRequirement: "共青团员",
+    requiresGrassroots: false, freshOnly: false,
+    history: [
+      { year: 2024, recruited: 2, interviewScore: 134.7, applicants: 187 },
+      { year: 2025, recruited: 2, interviewScore: 136.1, applicants: 210 },
+    ],
+    source: { name: "2026 市考职位表（官方）", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28" },
+  },
+];
 
 export function getDb(): DatabaseSync {
   return open();
