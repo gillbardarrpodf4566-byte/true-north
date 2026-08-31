@@ -12,6 +12,8 @@ import type {
 import type { Diagnosis } from "@/lib/diagnosis/engine";
 import type { Prescription } from "@/lib/prescription/engine";
 import type { WrongBookEntry } from "@/lib/errorcause/engine";
+import { updateEssayAbility } from "@/lib/essay/rewrite";
+import type { EssaySubmission } from "@/lib/essay/types";
 
 /** 一次训练会话（CL-03 作答轨迹） */
 export interface TrainingSession {
@@ -94,6 +96,10 @@ interface ProfileState {
   membership: Membership;
   /** 收藏的题（F0134） */
   favorites: string[];
+  /** 申论作答与批改（V1 CL-05） */
+  essaySubmissions: EssaySubmission[];
+  essayGrades: Record<string, import("@/lib/essay/types").EssayGrade>;
+  essayAbilities: import("@/lib/essay/types").EssayAbility[];
   /** 延后的处方任务：date → taskIds（F0117） */
   postponedTasks: Record<string, string[]>;
   /** 通知偏好（F0290/F0324） */
@@ -120,6 +126,11 @@ interface ProfileState {
   addAiFeedback: (f: { target: string; helpful: boolean | null; reported: boolean; reason: string }) => void;
   purchaseMembership: (plan: Membership["plan"], ok: boolean) => void;
   toggleFavorite: (questionId: string) => void;
+  addEssaySubmission: (
+    s: import("@/lib/essay/types").EssaySubmission,
+    q: import("@/lib/essay/types").EssayQuestion,
+    grade: import("@/lib/essay/types").EssayGrade,
+  ) => void;
   postponeTask: (date: string, taskId: string) => void;
   setNotifications: (n: Partial<ProfileState["notifications"]>) => void;
   addFeedback: (f: { type: "问题" | "建议"; text: string; hasScreenshot: boolean }) => void;
@@ -184,6 +195,9 @@ export const useProfileStore = create<ProfileState>()(
       aiFeedback: [],
       membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, orders: [] },
       favorites: [],
+      essaySubmissions: [],
+      essayGrades: {},
+      essayAbilities: [],
       postponedTasks: {},
       notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, window: "20:00" },
       feedbacks: [],
@@ -252,6 +266,17 @@ export const useProfileStore = create<ProfileState>()(
             ? s.favorites.filter((f) => f !== questionId)
             : [...s.favorites, questionId],
         })),
+      addEssaySubmission: (sub, q, grade) =>
+        set((s) => {
+          const prevAbility = s.essayAbilities.find((a) => a.type === q.type) ?? null;
+          const ability = updateEssayAbility(prevAbility, q, grade);
+          const rest = s.essayAbilities.filter((a) => a.type !== q.type);
+          return {
+            essaySubmissions: [...s.essaySubmissions, sub],
+            essayGrades: { ...s.essayGrades, [sub.id]: grade },
+            essayAbilities: [...rest, ability],
+          };
+        }),
       postponeTask: (date, taskId) =>
         set((s) => {
           const list = s.postponedTasks[date] ?? [];

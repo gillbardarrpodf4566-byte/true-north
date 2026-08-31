@@ -98,6 +98,18 @@ export default function TrainPage() {
         </ul>
       </section>
 
+      {/* 申论（V1 CL-05） */}
+      <section className="mt-xl">
+        <h2 className="text-title-lg text-ink">申论</h2>
+        <Link
+          href="/essay"
+          className="mt-md flex items-center justify-between rounded-lg border border-border bg-surface px-lg py-md"
+        >
+          <span className="text-body-md text-ink">申论教练（概括 / 对策 / 公文 / 大作文）</span>
+          <span className="text-caption text-muted">›</span>
+        </Link>
+      </section>
+
       {/* 错题修复（CL-03 step3-5） */}
       <section className="mt-xl">
         <div className="flex items-baseline justify-between">
