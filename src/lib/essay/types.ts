@@ -96,6 +96,8 @@ export interface EssayGrade {
   misses: MissedPoint[];
   /** 冗余/偏题表达（F0208） */
   redundancies: Array<{ sentence: string; reason: string }>;
+  /** 逐句批注（F0214）：句级问题定位，指向原answer句子 */
+  sentenceNotes: Array<{ sentenceIndex: number; sentence: string; note: string }>;
   /** 结构问题（F0209） */
   structureIssues: string[];
   /** 规范替换建议（F0210） */

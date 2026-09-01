@@ -257,6 +257,16 @@ function open(): DatabaseSync {
       schema_version TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS position_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      qid TEXT NOT NULL,
+      name TEXT NOT NULL,
+      field TEXT NOT NULL,
+      before_value TEXT NOT NULL,
+      after_value TEXT NOT NULL,
+      detected_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_position_changes_qid ON position_changes(qid);
     CREATE TABLE IF NOT EXISTS ai_feedback_candidates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       ticket_id INTEGER,

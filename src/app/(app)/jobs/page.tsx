@@ -35,7 +35,7 @@ const EDU: EducationLevel[] = ["大专", "本科", "硕士", "博士"];
 const POL: PoliticalStatus[] = ["群众", "共青团员", "中共党员"];
 
 export default function JobsPage() {
-  const { jobProfile, setJobProfile, jobFavorites, toggleJobFavorite } = useProfileStore();
+  const { jobProfile, setJobProfile, jobFavorites, toggleJobFavorite, profile } = useProfileStore();
   const [education, setEducation] = useState<EducationLevel>(jobProfile?.education ?? "本科");
   const [major, setMajor] = useState(jobProfile?.major ?? "");
   const [fresh, setFresh] = useState(jobProfile?.isFreshGraduate ?? false);
@@ -47,6 +47,7 @@ export default function JobsPage() {
   const [developmentPriorities, setDevelopmentPriorities] = useState<Array<"晋升通道" | "专业相关" | "稳定性" | "工作生活平衡">>(jobProfile?.preferences.developmentPriorities ?? []);
   const [riskAppetite, setRiskAppetite] = useState<NonNullable<typeof jobProfile>['preferences']['riskAppetite']>(jobProfile?.preferences.riskAppetite ?? "均衡");
   const [matches, setMatches] = useState<MatchDTO[] | null>(null);
+  const [easyIds, setEasyIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [compare, setCompare] = useState<string[]>([]);
@@ -78,9 +79,11 @@ export default function JobsPage() {
           developmentPriorities,
           riskAppetite,
         },
+        // F0264：冲稳保必须基于用户真实目标分，不能用引擎内的固定 125 分兜底
+        targetScore: profile.goal?.targetTotal ?? null,
       }),
     });
-    const data = (await res.json()) as { ok: boolean; matches?: MatchDTO[]; message?: string };
+    const data = (await res.json()) as { ok: boolean; matches?: MatchDTO[]; easy?: string[]; message?: string };
     if (!data.ok) {
       setError(data.message ?? "匹配失败");
       setMatches(null);
@@ -102,7 +105,20 @@ export default function JobsPage() {
       updatedAt: new Date().toISOString(),
     });
     setMatches(data.matches ?? []);
+    setEasyIds(data.easy ?? []);
   };
+
+  // F0275 收藏职位变更提醒
+  const [changes, setChanges] = useState<Array<{ qid: string; name: string; field: string; before: string; after: string; detectedAt: string }>>([]);
+  useEffect(() => {
+    const ids = favoriteIds.join(",");
+    if (!signedIn && ids === "") { setChanges([]); return; }
+    const query = signedIn ? "" : `?qids=${encodeURIComponent(ids)}`;
+    void fetch(`/api/jobs/changes${query}`, { headers: token ? { authorization: `Bearer ${token}` } : undefined })
+      .then((r) => r.json())
+      .then((d: { ok: boolean; changes?: typeof changes }) => setChanges(d.ok ? d.changes ?? [] : []))
+      .catch(() => undefined);
+  }, [favoriteIds, signedIn, token]);
 
   // F0274/F0291 报名节点（公开只读接口）
   const [nodes, setNodes] = useState<Array<{ id: number; exam_name: string; kind: string; date: string }>>([]);
@@ -275,6 +291,22 @@ export default function JobsPage() {
         </div>
       </Card>
 
+      {/* F0275 收藏职位变更：逐字段给出前后值，不做解读 */}
+      {changes.length > 0 ? (
+        <Card className="mt-lg" tone="faint" radius="lg">
+          <p className="text-label-md text-warning">收藏职位有变更（{changes.length}）</p>
+          <ul className="mt-sm space-y-xs text-caption text-body">
+            {changes.map((change, index) => (
+              <li key={`${change.qid}-${change.field}-${index}`}>
+                {change.name} · {change.field}：{change.before} → {change.after}
+                <span className="ml-xxs text-muted-soft">（{change.detectedAt.slice(0, 10)}）</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-xs text-caption text-muted">以官方公告为准；变更仅来自后台导入的职位表对比。</p>
+        </Card>
+      ) : null}
+
       {/* F0274 报名节点 */}
       {nodes.length > 0 ? (
         <Card className="mt-lg">
@@ -298,6 +330,27 @@ export default function JobsPage() {
               <span className="text-caption text-muted">已选 {compare.length}/5 对比</span>
             ) : null}
           </div>
+
+          {/* F0263 易上岸候选：可报且竞争比最低的前三 */}
+          {easyIds.length > 0 ? (
+            <Card className="mt-md" tone="faint" radius="lg">
+              <p className="text-label-md text-muted">易上岸候选（竞争比最低）</p>
+              {/* 用 div 而非 li：避免与下方职位卡片列表共用 li 语义，造成定位歧义 */}
+              <div className="mt-sm space-y-xxs text-body-sm text-body">
+                {easyIds.map((id) => {
+                  const match = reportable.find((item) => item.position.id === id);
+                  if (!match) return null;
+                  return (
+                    <p key={id}>
+                      {match.position.name}
+                      {match.competitionRatio != null ? ` · 约 ${match.competitionRatio}:1` : ""}
+                    </p>
+                  );
+                })}
+              </div>
+              <p className="mt-xs text-caption text-muted">仅按历史竞争比排序，不构成报名建议；请结合官方公告核对。</p>
+            </Card>
+          ) : null}
 
           {reportable.length === 0 ? (
             <div className="mt-lg">

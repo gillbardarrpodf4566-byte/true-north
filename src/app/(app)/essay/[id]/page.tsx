@@ -25,7 +25,7 @@ export default function EssayWorkPage() {
   const { essays } = usePublishedEssays();
   const published = essays.find((item) => item.question.id === params.id);
   const q = published?.question ?? essayQuestionById(params.id);
-  const { essaySubmissions, essayGrades, addEssaySubmission } = useProfileStore();
+  const { essaySubmissions, essayGrades, addEssaySubmission, consumeAiQuota } = useProfileStore();
   const [text, setText] = useState("");
   const [showExample, setShowExample] = useState(false);
   const [round, setRound] = useState(0);
@@ -92,6 +92,8 @@ export default function EssayWorkPage() {
         q.type,
         grade,
       );
+      // F0313：一次成功批改消耗一次 AI 额度
+      consumeAiQuota();
       setRubricSource(data.rubricSource ?? `已发布内容包 r${grade.contentRevision ?? 0}`);
       setText("");
       setRound((r) => r + 1);
@@ -284,6 +286,21 @@ function GradeView({ grade }: { grade: EssayGrade }) {
           ))}
         </div>
       </details>
+
+      {/* 逐句批注（F0214）：每条批注指向原答案的具体句子 */}
+      {(grade.sentenceNotes ?? []).length > 0 ? (
+        <details className="mt-md">
+          <summary className="cursor-pointer text-body-sm text-primary">逐句批注（{grade.sentenceNotes.length} 句）</summary>
+          <ul className="mt-sm space-y-sm">
+            {grade.sentenceNotes.map((n) => (
+              <li key={n.sentenceIndex} className="rounded-md border border-border bg-surface p-md">
+                <p className="text-caption text-ink">第 {n.sentenceIndex + 1} 句：{n.sentence}</p>
+                <p className="mt-xxs text-caption text-muted">{n.note}</p>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {/* 结构/规范/冗余 */}
       {grade.structureIssues.length > 0 || grade.normSuggestions.length > 0 || grade.redundancies.length > 0 ? (

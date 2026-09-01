@@ -359,6 +359,60 @@ export function listPositions(): PositionRow[] {
     .all() as unknown as PositionRow[];
 }
 
+export interface PositionChange {
+  qid: string;
+  name: string;
+  field: "招录人数" | "学历要求" | "专业要求" | "来源更新时间";
+  before: string;
+  after: string;
+}
+
+/**
+ * F0275 职位变更检测：导入前后逐字段对比，只报确定性差异。
+ * 供收藏该职位的用户获得变更提醒，不做任何推测性解读。
+ */
+export function detectPositionChanges(rows: Array<Record<string, unknown>>): PositionChange[] {
+  const changes: PositionChange[] = [];
+  const db = getDb();
+  for (const row of rows) {
+    const qid = String(row.id ?? "").trim();
+    if (qid === "") continue;
+    const before = db
+      .prepare("SELECT name, recruiting, min_education, major_categories, source_updated_at FROM job_positions WHERE qid = ?")
+      .get(qid) as { name: string; recruiting: number; min_education: string; major_categories: string; source_updated_at: string } | undefined;
+    if (!before) continue;
+    const name = String(row.name ?? before.name);
+    const push = (field: PositionChange["field"], left: string, right: string): void => {
+      if (left !== right) changes.push({ qid, name, field, before: left, after: right });
+    };
+    push("招录人数", String(before.recruiting), String(Number(row.recruiting)));
+    push("学历要求", before.min_education, String(row.minEducation ?? ""));
+    const nextCategories = Array.isArray(row.majorCategories) ? row.majorCategories.map(String) : [];
+    push("专业要求", (JSON.parse(before.major_categories) as string[]).join("、"), nextCategories.join("、"));
+    push("来源更新时间", before.source_updated_at, String(row.sourceUpdatedAt ?? ""));
+  }
+  return changes;
+}
+
+export function recordPositionChanges(changes: PositionChange[]): void {
+  if (changes.length === 0) return;
+  const insert = getDb().prepare(
+    "INSERT INTO position_changes (qid, name, field, before_value, after_value, detected_at) VALUES (?, ?, ?, ?, ?, ?)",
+  );
+  const now = new Date().toISOString();
+  for (const change of changes) insert.run(change.qid, change.name, change.field, change.before, change.after, now);
+}
+
+/** 只返回用户收藏职位的变更，避免把整库噪音推给用户。 */
+export function listPositionChangesFor(qids: string[], limit = 20): Array<PositionChange & { detectedAt: string }> {
+  if (qids.length === 0) return [];
+  const placeholders = qids.map(() => "?").join(",");
+  const rows = getDb()
+    .prepare(`SELECT qid, name, field, before_value, after_value, detected_at FROM position_changes WHERE qid IN (${placeholders}) ORDER BY id DESC LIMIT ?`)
+    .all(...qids, limit) as unknown as Array<{ qid: string; name: string; field: PositionChange["field"]; before_value: string; after_value: string; detected_at: string }>;
+  return rows.map((row) => ({ qid: row.qid, name: row.name, field: row.field, before: row.before_value, after: row.after_value, detectedAt: row.detected_at }));
+}
+
 export function upsertPositions(
   rows: Array<Record<string, unknown>>,
   staff: StaffRow,

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { matchPositions, SEED_POSITIONS } from "@/lib/jobs/engine";
+import { easyCandidates, matchPositions, SEED_POSITIONS } from "@/lib/jobs/engine";
 import { requireFeature } from "@/lib/server/flags";
 import { activeRules } from "@/lib/server/job-rules";
 import type { EducationLevel, JobPosition, PoliticalStatus } from "@/lib/jobs/types";
@@ -98,6 +98,10 @@ export async function POST(req: Request): Promise<NextResponse> {
       competitionRatio: m.competitionRatio,
       dataStale: m.dataStale,
       ruleRevision: m.ruleRevision,
+      preferenceScore: m.preferenceScore,
+      unavailableFactors: m.unavailableFactors,
     })),
+    // F0263 易上岸候选：可报且竞争比最低的前三，供前端单独呈现
+    easy: easyCandidates(matches).map((m) => m.position.id),
   });
 }

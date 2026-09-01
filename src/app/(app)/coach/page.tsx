@@ -119,7 +119,7 @@ interface CoachData {
 }
 
 export default function CoachPage() {
-  const { profile, diagnosis, baseline, prescription, imports, membership, aiFeedback, addAiFeedback, learningPreferences, attemptRecords, wrongBook, coachHistory, addCoachTurns } =
+  const { profile, diagnosis, baseline, prescription, imports, membership, aiFeedback, addAiFeedback, learningPreferences, attemptRecords, wrongBook, coachHistory, addCoachTurns, consumeAiQuota } =
     useProfileStore();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -154,6 +154,8 @@ export default function CoachPage() {
       { id: `u-${now}`, role: "user", text: q, context: diagnosis?.headline ?? "", at: new Date().toISOString() },
       { id: `c-${now}`, role: "coach", text: reply.conclusion, context: diagnosis?.headline ?? "", at: new Date().toISOString() },
     ]);
+    // F0313：一次教练问答消耗一次 AI 额度
+    consumeAiQuota();
     setInput("");
   };
 
@@ -183,6 +185,12 @@ export default function CoachPage() {
         <p className="mt-xs text-caption text-muted">
           画像上下文：已记录 {attemptRecords.length} 条作答轨迹 · 错题 {wrongBook.length} 题 ·
           稳定性 {ability.stability.level ?? "样本不足"}
+        </p>
+        {/* F0019/F0023/F0025：目标岗位与已有资源、练习偏好会进入教练建议的前提 */}
+        <p className="mt-xxs text-caption text-muted">
+          前提条件：{profile.goal?.targetJob ? `目标岗位「${profile.goal.targetJob}」 · ` : ""}
+          {learningPreferences.resources.length > 0 ? `沿用你已有的 ${learningPreferences.resources.join("、")} · ` : ""}
+          偏好{learningPreferences.mode}（{learningPreferences.content}）
         </p>
         {membership.plan === "free" ? (
           <p className="mt-xs text-caption text-muted-soft">

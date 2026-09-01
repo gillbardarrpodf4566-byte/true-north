@@ -5,7 +5,7 @@
  * F0224–F0226 报告入口。屏 §11.12（移动端材料与作答分阶段）。
  */
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
@@ -25,6 +25,11 @@ export default function EssayHubPage() {
   const { essays } = usePublishedEssays();
 
   const gradesList = useMemo(() => Object.values(essayGrades), [essayGrades]);
+  // F0199 真题按年份/地区筛选
+  const [yearFilter, setYearFilter] = useState("");
+  const [regionFilter, setRegionFilter] = useState("");
+  const years = useMemo(() => [...new Set(essays.map((item) => String(item.question.year)))].sort((a, b) => b.localeCompare(a)), [essays]);
+  const regions = useMemo(() => [...new Set(essays.map((item) => item.question.region))].sort(), [essays]);
   if (!flagsLoading && !essayEnabled) {
     return (
       <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
@@ -50,6 +55,12 @@ export default function EssayHubPage() {
           if (qMeta?.type === a.type && g) history.push(g);
         }
         const w = weakestDimension(history);
+        // F0200：推荐必须落到具体题目——同题型中练得最少的一题
+        const sameType = essays.filter((item) => item.question.type === a.type);
+        const target = [...sameType].sort((left, right) =>
+          essaySubmissions.filter((s) => s.questionId === left.question.id).length -
+          essaySubmissions.filter((s) => s.questionId === right.question.id).length,
+        )[0];
         return (
           <Card key={a.type} className="mt-lg" tone="faint" radius="lg">
             <p className="text-label-md text-muted">专项弱项推荐 · {a.type}</p>
@@ -58,16 +69,43 @@ export default function EssayHubPage() {
                 ? `「${w.id}」维度偏弱（${Math.round(w.ratio * 100)}%），建议优先练习同类题。`
                 : "暂无明确弱项。"}
             </p>
+            {target ? (
+              <Link href={`/essay/${target.question.id}`} className="mt-sm inline-block text-label-md text-primary">
+                去练「{target.question.title}」→
+              </Link>
+            ) : null}
           </Card>
         );
       })}
+
+      {/* F0199 真题筛选：按年份与地区 */}
+      <div className="mt-lg grid grid-cols-2 gap-md">
+        <label className="block">
+          <span className="text-caption text-muted">年份</span>
+          <select aria-label="真题年份" value={yearFilter} onChange={(event) => setYearFilter(event.target.value)} className="mt-xxs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink">
+            <option value="">全部年份</option>
+            {years.map((year) => <option key={year} value={year}>{year}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-caption text-muted">地区</span>
+          <select aria-label="真题地区" value={regionFilter} onChange={(event) => setRegionFilter(event.target.value)} className="mt-xxs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink">
+            <option value="">全部地区</option>
+            {regions.map((region) => <option key={region} value={region}>{region}</option>)}
+          </select>
+        </label>
+      </div>
 
       {/* F0198/F0199：题型 × 真题列表 */}
       {TYPES.map((t) => (
         <section key={t} className="mt-xl">
           <h2 className="text-title-lg text-ink">{t}</h2>
           <ul className="mt-md space-y-md">
-            {essays.filter((item) => item.question.type === t).map(({ question: q, revision }) => {
+            {essays.filter((item) =>
+              item.question.type === t &&
+              (yearFilter === "" || String(item.question.year) === yearFilter) &&
+              (regionFilter === "" || item.question.region === regionFilter),
+            ).map(({ question: q, revision }) => {
               const attempts = essaySubmissions.filter((s) => s.questionId === q.id).length;
               return (
                 <li key={q.id}>

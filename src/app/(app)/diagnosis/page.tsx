@@ -6,7 +6,7 @@
  * §11.4 Avoid：不用雷达图；用 ranked opportunity list + horizontal contribution bar +
  * confidence 语言。CTA：一键生成处方（F0101）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -17,20 +17,24 @@ import { ContributionBars } from "@/components/charts/ContributionBars";
 import { useProfileStore } from "@/lib/profile/store";
 import { diagnose } from "@/lib/diagnosis/engine";
 import { buildPrescription, todayBudget } from "@/lib/prescription/engine";
-import { counterfactualExplanation, diagnosisDelta, impactBand } from "@/lib/insights/v1";
+import { counterfactualExplanation, diagnosisDelta, diagnosisStale, impactBand, stabilityOpportunity } from "@/lib/insights/v1";
+import { computeAbilityDimensions } from "@/lib/ability/dimensions";
 
 export default function DiagnosisPage() {
   const router = useRouter();
-  const { baseline, profile, diagnosis, diagnosisHistory, profileCorrections, setDiagnosis, setPrescription, todayMinutesOverride, aiFeedback, addAiFeedback } =
+  const { baseline, profile, diagnosis, diagnosisHistory, profileCorrections, setDiagnosis, setPrescription, todayMinutesOverride, aiFeedback, addAiFeedback, attemptRecords } =
     useProfileStore();
+  // F0090：稳定性本身也是一个机会点，与模块正确率机会并列展示
+  const stability = useMemo(() => stabilityOpportunity(computeAbilityDimensions(attemptRecords)), [attemptRecords]);
   const [disagreeOpen, setDisagreeOpen] = useState(false);
   const [supplement, setSupplement] = useState("");
   const [supplementSent, setSupplementSent] = useState(false);
 
-  // F0081 导入新模考后自动生成诊断候选：基线在但诊断缺失/过期时重算
+  // F0081/F0103：诊断缺失时直接生成；已有诊断被新数据超越时不静默覆盖，
+  // 先告知结论已过期，由用户决定何时用新数据重算。
+  const stale = Boolean(baseline && diagnosis && diagnosisStale(diagnosis.generatedAt, baseline.computedAt));
   useEffect(() => {
-    if (!baseline) return;
-    if (diagnosis && diagnosis.generatedAt >= baseline.computedAt) return;
+    if (!baseline || diagnosis) return;
     setDiagnosis(diagnose(baseline, profile.goal, profile.conditions));
   }, [baseline, diagnosis, profile.goal, profile.conditions, setDiagnosis]);
 
@@ -95,6 +99,16 @@ export default function DiagnosisPage() {
             重新诊断
           </Button>
         </div>
+        {/* F0103 结论有效期：过期不静默覆盖，明确告知并交由用户决定 */}
+        {stale ? (
+          <div role="status" className="mt-md rounded-md border border-warning bg-warning-soft p-md">
+            <p className="text-body-sm text-ink">已有更新的成绩数据，这条结论可能已过期。重新诊断前不会自动改写它。</p>
+            <Button className="mt-sm" variant="secondary" onClick={reDiagnose}>
+              用新数据重新诊断
+            </Button>
+          </div>
+        ) : null}
+
         {/* F0319：对诊断结论本身的反馈 */}
         <div className="mt-sm flex items-center gap-sm">
           <span className="text-caption text-muted">这个判断对你有帮助吗？</span>
@@ -158,6 +172,13 @@ export default function DiagnosisPage() {
               rows={bars}
             />
           </div>
+          {/* F0090 稳定性机会：波动本身是可提分项，与模块机会并列 */}
+          {stability ? (
+            <Card className="mt-lg" tone="faint">
+              <p className="text-label-md text-muted">稳定性机会（F0090）</p>
+              <p className="mt-xs text-body-sm text-body">{stability.moduleId}：{stability.note}</p>
+            </Card>
+          ) : null}
           {diagnosis.opportunities[0] ? (
             <Card className="mt-lg" tone="surface">
               <p className="text-label-md text-muted">预计影响（F0098）</p>

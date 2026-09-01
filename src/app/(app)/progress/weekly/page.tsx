@@ -24,9 +24,31 @@ function weekKeyOf(d = new Date()): string {
 }
 
 export default function WeeklyReviewPage() {
-  const { imports, taskResults, wrongBook, weeklyReview, setWeeklyReview, profile } =
+  const { imports, taskResults, wrongBook, weeklyReview, weeklyReviewHistory, setWeeklyReview, profile } =
     useProfileStore();
   const weekKey = weekKeyOf();
+
+  // F0284：上一周确认的重点 vs 本周实际结果，逐条给出是否兑现
+  const priorWeek = useMemo(
+    () => [...weeklyReviewHistory].filter((item) => item.weekKey !== weekKey).sort((a, b) => b.weekKey.localeCompare(a.weekKey))[0] ?? null,
+    [weeklyReviewHistory, weekKey],
+  );
+  const priorOutcome = useMemo(() => {
+    if (!priorWeek) return null;
+    const confirmedAt = priorWeek.confirmedAt ?? `${priorWeek.weekKey}-01`;
+    const since = taskResults.filter((r) => r.completedAt >= confirmedAt);
+    return priorWeek.nextPriorities.map((priority) => {
+      // 以任务标题包含重点关键字作为兑现判据，不做模糊推断。
+      const related = since.filter((r) => r.taskId.includes(priority) || priority.includes(r.taskId));
+      const met = related.filter((r) => r.metCriteria).length;
+      return {
+        priority,
+        attempted: related.length,
+        met,
+        verdict: related.length === 0 ? "未执行" : met > 0 ? "已兑现" : "执行但未达标",
+      };
+    });
+  }, [priorWeek, taskResults]);
 
   const draft = useMemo((): WR | null => {
     const weekAgo = Date.now() - 7 * 86_400_000;
@@ -144,6 +166,25 @@ export default function WeeklyReviewPage() {
         <p className="text-micro text-primary">周复盘 · {weekKey} 起</p>
         <h1 className="mt-sm text-headline-xl text-ink">{existing.conclusion}</h1>
       </header>
+
+      {/* F0284：上周计划与本周结果对比，兑现与未兑现都要说清 */}
+      {priorOutcome && priorOutcome.length > 0 ? (
+        <section className="mt-xl">
+          <h2 className="text-title-lg text-ink">上周计划 vs 实际结果</h2>
+          <p className="mt-xs text-caption text-muted">对比 {priorWeek?.weekKey} 起那周你确认的重点。</p>
+          <ul className="mt-md space-y-sm">
+            {priorOutcome.map((row) => (
+              <li key={row.priority} className="rounded-md border border-border bg-surface p-md">
+                <p className="text-body-sm text-ink">{row.priority}</p>
+                <p className="mt-xxs text-caption text-muted">
+                  {row.verdict}
+                  {row.attempted > 0 ? ` · 完成 ${row.attempted} 次，其中达标 ${row.met} 次` : " · 本周没有对应的完成记录"}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="mt-xl">
         <h2 className="text-title-lg text-ink">有效变化</h2>

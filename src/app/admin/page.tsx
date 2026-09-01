@@ -96,6 +96,9 @@ export default function AdminPage() {
           <Link href="/admin/rules" className="text-label-md text-primary">
             资格规则 ›
           </Link>
+          <Link href="/admin/operations" className="text-label-md text-primary">
+            运营位 ›
+          </Link>
           <Link href="/aiops" className="text-label-md text-primary">
             AI 运营台 ›
           </Link>

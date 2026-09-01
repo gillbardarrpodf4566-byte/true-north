@@ -25,6 +25,24 @@ interface PromptVersion {
   v: string;
   status: "草稿" | "已发布" | "已回滚";
   note: string;
+  /** F0370：保存提示词正文才能做真实逐行差异 */
+  body?: string;
+}
+
+/** F0370：逐行差异；两侧都有正文时才能对比，缺失正文不臆造差异。 */
+function promptDiff(before: string | undefined, after: string | undefined): string[] {
+  if (!before || !after) return [];
+  const left = before.split("\n");
+  const right = after.split("\n");
+  const lines: string[] = [];
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const a = left[i];
+    const b = right[i];
+    if (a === b) { if (a != null) lines.push(`  ${a}`); continue; }
+    if (a != null) lines.push(`- ${a}`);
+    if (b != null) lines.push(`+ ${b}`);
+  }
+  return lines.slice(0, 30);
 }
 
 interface EvalRunRow {
@@ -68,6 +86,15 @@ export default function AiOpsPage() {
     schemaVersion: string | null;
   }>>([]);
   const [running, setRunning] = useState<string | null>(null);
+  // F0377 抽样人工复核状态
+  const [calibration, setCalibration] = useState<{
+    samples: Array<{ id: string; questionId: string; questionTitle: string; excerpt: string; autoScore: number; fullScore: number }>;
+    calibrations: Array<{ id: string; autoScore: number; humanScore: number; note: string; reviewedBy: string }>;
+    meanGap: number | null;
+    reviewed: number;
+  }>({ samples: [], calibrations: [], meanGap: null, reviewed: 0 });
+  const [humanScores, setHumanScores] = useState<Record<string, string>>({});
+  const [calibNotes, setCalibNotes] = useState<Record<string, string>>({});
   const [lastOutcome, setLastOutcome] = useState<{
     suite: string;
     passRate: number;
@@ -134,6 +161,32 @@ export default function AiOpsPage() {
       }
     },
     [load],
+  );
+
+  const loadCalibration = useCallback(async (): Promise<void> => {
+    const data = await adminApi<typeof calibration>("/api/admin/aiops/calibration");
+    if (data.ok) setCalibration({ samples: data.samples ?? [], calibrations: data.calibrations ?? [], meanGap: data.meanGap ?? null, reviewed: data.reviewed ?? 0 });
+  }, []);
+
+  useEffect(() => {
+    if (staff) void loadCalibration();
+  }, [staff, loadCalibration]);
+
+  const submitCalibration = useCallback(
+    async (sample: { id: string; questionId: string; excerpt: string; autoScore: number }): Promise<void> => {
+      const humanScore = Number(humanScores[sample.id]);
+      if (!Number.isFinite(humanScore)) return;
+      const data = await adminApi("/api/admin/aiops/calibration", {
+        method: "POST",
+        body: JSON.stringify({ sampleId: sample.id, questionId: sample.questionId, excerpt: sample.excerpt, autoScore: sample.autoScore, humanScore, note: calibNotes[sample.id] ?? "" }),
+      });
+      if (data.ok) {
+        setHumanScores((current) => ({ ...current, [sample.id]: "" }));
+        setCalibNotes((current) => ({ ...current, [sample.id]: "" }));
+        await loadCalibration();
+      }
+    },
+    [humanScores, calibNotes, loadCalibration],
   );
 
   const metricsSummary = useMemo(() => summarizeAiCalls(), []);
@@ -231,8 +284,60 @@ export default function AiOpsPage() {
               </Button>
             </div>
             <p className="mt-xs text-caption text-muted">
-              Rubric Grader：分数界/维度和/优先建议数/证据必填/置信必填/字数口径 + 评分一致性，全部确定性断言（F0377 人工抽样校准另行安排）。
+              Rubric Grader：分数界/维度和/优先建议数/证据必填/置信必填/字数口径 + 评分一致性，全部确定性断言。
             </p>
+
+            {/* F0377 抽样人工复核：记录人工分并给出自动 vs 人工偏差 */}
+            <Card className="mt-md">
+              <div className="flex items-baseline justify-between">
+                <p className="text-label-md text-muted">抽样人工复核（F0377）</p>
+                <span className="text-caption text-muted">
+                  已复核 {calibration.reviewed} 条{calibration.meanGap != null ? ` · 平均偏差 ${calibration.meanGap} 分` : ""}
+                </span>
+              </div>
+              <ul className="mt-sm space-y-md">
+                {calibration.samples.map((sample) => {
+                  const recorded = calibration.calibrations.find((item) => item.id === sample.id);
+                  return (
+                    <li key={sample.id} className="rounded-md border border-border bg-surface p-md">
+                      <p className="text-caption text-ink">{sample.questionTitle} · 自动分 {sample.autoScore}/{sample.fullScore}</p>
+                      <p className="mt-xxs text-caption text-muted">{sample.excerpt}…</p>
+                      {recorded ? (
+                        <p className="mt-xs text-caption text-primary">
+                          人工分 {recorded.humanScore} · 偏差 {Math.round(Math.abs(recorded.autoScore - recorded.humanScore) * 10) / 10} 分 · {recorded.reviewedBy}
+                          {recorded.note ? ` · ${recorded.note}` : ""}
+                        </p>
+                      ) : null}
+                      <div className="mt-sm flex items-center gap-sm">
+                        <input
+                          aria-label={`人工分 ${sample.id}`}
+                          inputMode="decimal"
+                          value={humanScores[sample.id] ?? ""}
+                          onChange={(e) => setHumanScores((current) => ({ ...current, [sample.id]: e.target.value.replace(/[^\d.]/g, "") }))}
+                          placeholder="人工分"
+                          className="h-9 w-24 rounded-sm border border-border-strong bg-surface px-sm text-caption text-ink"
+                        />
+                        <input
+                          aria-label={`复核说明 ${sample.id}`}
+                          value={calibNotes[sample.id] ?? ""}
+                          onChange={(e) => setCalibNotes((current) => ({ ...current, [sample.id]: e.target.value }))}
+                          placeholder="偏差原因（可选）"
+                          className="h-9 flex-1 rounded-sm border border-border-strong bg-surface px-sm text-caption text-ink"
+                        />
+                        <Button
+                          variant="secondary"
+                          disabled={!humanScores[sample.id]}
+                          onClick={() => void submitCalibration(sample)}
+                        >
+                          记录
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-sm text-caption text-muted">人工分只用于校准偏差，不回写用户成绩。</p>
+            </Card>
             {evalRuns.filter((r) => r.suite === "essay").length > 0 ? (
               <div className="mt-md space-y-md">
                 {evalRuns
@@ -310,10 +415,32 @@ export default function AiOpsPage() {
               {config.prompt_versions.length >= 2 ? (
                 <Card className="mt-md" padding="dense">
                   <p className="text-label-md text-muted">版本差异对比（F0370）</p>
-                  <p className="mt-xs text-caption text-body">
-                    当前候选「{config.prompt_versions[config.prompt_versions.length - 1]!.v}」相对已发布版本：
-                    {config.prompt_versions[config.prompt_versions.length - 1]!.note}。发布前请运行 Parser / 诊断 / 申论回归门禁。
-                  </p>
+                  {(() => {
+                    const candidate = config.prompt_versions[config.prompt_versions.length - 1]!;
+                    const published = [...config.prompt_versions].reverse().find((item) => item.status === "已发布" && item.v !== candidate.v);
+                    const diff = promptDiff(published?.body, candidate.body);
+                    return (
+                      <>
+                        <p className="mt-xs text-caption text-body">
+                          候选「{candidate.v}」对比{published ? `已发布「${published.v}」` : "（暂无已发布版本）"}：{candidate.note}
+                        </p>
+                        {diff.length > 0 ? (
+                          <ul className="mt-sm space-y-xxs">
+                            {diff.map((line, index) => (
+                              <li key={index} className={`text-micro ${line.startsWith("+") ? "text-success" : line.startsWith("-") ? "text-error" : "text-muted"}`}>
+                                {line}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-sm text-caption text-muted">
+                            两个版本未保存提示词正文，无法逐行对比；请在版本中填写 body 后再发布。
+                          </p>
+                        )}
+                        <p className="mt-sm text-caption text-muted">发布前请运行 Parser / 诊断 / 申论回归门禁。</p>
+                      </>
+                    );
+                  })()}
                 </Card>
               ) : null}
             </section>

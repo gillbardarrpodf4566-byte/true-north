@@ -5,7 +5,9 @@
 > 2026-09-01 独立审计发现的发布阻断项已修复：后台默认口令与演示令牌、登录节流、注销后本地数据清理、
 > 灰度服务端强制、申论内容包版本化（含采分点）、职位表字段映射导入与资格规则版本化、外部导入幂等、
 > AI 反馈脱敏与真实来源、训练草稿与题级计时、验证码不再回显、公开接口不下发采分点、演示职位数据标注。
-> 自动化证据：`pnpm check`（typecheck / lint / vitest **165** 项 / token 漂移）+ `pnpm build` +
+> 2026-09-01 逐条独立复核（155 条分 5 组）：首轮 113 PASS / 35 WEAK / 7 FAIL；
+> 7 个 FAIL 与主要 WEAK 已修复，详见 [`spec-gaps.md`](spec-gaps.md) GAP-14。
+> 自动化证据：`pnpm check`（typecheck / lint / vitest **173** 项 / token 漂移）+ `pnpm build` +
 > `pnpm audit --prod`（无已知漏洞）+ Playwright E2E **24/24**（串行，无重试）。
 > V1 逐条实施证据见 [`v1-feature-map.md`](v1-feature-map.md)。
 

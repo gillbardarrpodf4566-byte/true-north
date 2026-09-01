@@ -19,7 +19,8 @@ import { recordRetest, suggestErrorCause } from "@/lib/errorcause/engine";
 import { computeBaseline } from "@/lib/baseline/compute";
 import { filterDisabled, fetchDisabledQuestions } from "@/lib/questions/useDisabled";
 import { autoAssemble, buildWrongRetestSet, strategyFeedback, nextStepSuggestion, questionVersionHistory } from "@/lib/training/advanced";
-import { lightenTask, replacementFor } from "@/lib/plan/adaptive";
+import { adaptiveDifficulty, lightenTask, replacementFor, scaffoldLevel } from "@/lib/plan/adaptive";
+import { computeAbilityDimensions } from "@/lib/ability/dimensions";
 import { duration, easing } from "@/design/tokens";
 import { MODULES } from "@/lib/profile/types";
 import type { Question } from "@/lib/questions/types";
@@ -37,6 +38,7 @@ export default function SessionPage() {
     upsertSession,
     addTaskResult,
     addAttemptRecords,
+    attemptRecords,
     addWrongEntries,
     wrongBook,
     updateWrongEntry,
@@ -47,6 +49,7 @@ export default function SessionPage() {
     baseline,
     favorites,
     toggleFavorite,
+    toggleWatchlist,
   } = useProfileStore();
 
   const [hydrated, setHydrated] = useState(false);
@@ -122,8 +125,10 @@ export default function SessionPage() {
       : "言语理解");
     const count = Math.min(task?.questionCount ?? 8, 12);
     const offset = sessions.filter((item) => item.moduleId === moduleId && item.finishedAt != null).length * 7;
-    return drop(buildTrainingSet(moduleId, count, offset));
-  }, [rawId, task?.moduleId, task?.questionCount, sessions, session?.questionIds, session?.wrongIds, disabledIds, wrongBook]);
+    // F0107：难度真正参与选题，而不是只写在任务标题里
+    const difficulty = adaptiveDifficulty(moduleId, computeAbilityDimensions(attemptRecords));
+    return drop(buildTrainingSet(moduleId, count, offset, difficulty));
+  }, [rawId, task?.moduleId, task?.questionCount, sessions, session?.questionIds, session?.wrongIds, disabledIds, wrongBook, attemptRecords]);
 
   const questionIdsKey = questions.map((question) => question.id).join("\u001f");
 
@@ -364,6 +369,15 @@ export default function SessionPage() {
         at: new Date().toISOString(),
       };
     }));
+
+    // F0150 关注库：高耗时但答对的题需要单独跟踪，不进错题本
+    for (const question of answered) {
+      const answer = answers[question.id]!;
+      const isHesitantCorrect = answer.choice === question.answerIndex && answer.seconds >= 90;
+      if (isHesitantCorrect && !useProfileStore.getState().watchlist.includes(question.id)) {
+        toggleWatchlist(question.id);
+      }
+    }
 
     const firstAnswered = answered[0];
     if (answered.length > 0 && firstAnswered) {
@@ -624,6 +638,9 @@ export default function SessionPage() {
     );
   }
 
+  // F0111/F0171：按该题型历史正确率决定最高提示层级（掌握后归零）
+  const typeAccuracy = computeAbilityDimensions(attemptRecords).byType.find((item) => item.type === q.type)?.accuracy ?? null;
+  const maxHintLevel = scaffoldLevel(typeAccuracy);
   const isCorrect = submitted && choice === q.answerIndex;
   const selected = choice;
   const currentQuestionDuration = submitted
@@ -692,7 +709,12 @@ export default function SessionPage() {
 
       {!submitted ? (
         <div className="mt-lg flex items-center gap-md">
-          <Button variant="tertiary" onClick={() => { setHintOpen(true); setHintLevel((level) => level === 0 ? 1 : 2); }} aria-expanded={hintOpen}>AI 提示</Button>
+          {/* F0111/F0171 脚手架渐隐：该题型已稳定掌握时不再提供分级提示 */}
+          {maxHintLevel > 0 ? (
+            <Button variant="tertiary" onClick={() => { setHintOpen(true); setHintLevel((level) => (level === 0 ? 1 : 2) > maxHintLevel ? maxHintLevel : (level === 0 ? 1 : 2)); }} aria-expanded={hintOpen}>AI 提示</Button>
+          ) : (
+            <span className="text-caption text-muted">该题型已稳定，先独立作答</span>
+          )}
           <Button variant="tertiary" onClick={() => toggleFavorite(q.id)} aria-pressed={favorites.includes(q.id)}>{favorites.includes(q.id) ? "已收藏" : "收藏"}</Button>
           <Button variant="tertiary" onClick={skipQuestion}>跳过，稍后回看</Button>
           <span className="flex-1" />
@@ -703,8 +725,8 @@ export default function SessionPage() {
 
       {hintOpen && !submitted ? (
         <div className="mt-sm space-y-sm">
-          {hintLevel >= 1 ? <p className="rounded-md bg-surface-soft p-md text-body-sm text-body">先想一下：这道题真正问的是「{q.knowledgePoint}」里的哪一个量？你在材料里定位到哪一行了？</p> : null}
-          {hintLevel >= 2 ? <p className="rounded-md bg-surface-soft p-md text-body-sm text-body">策略提示：这道题用「{q.skillTarget}」的常规路径最稳；先列式再代入，别急着精算。</p> : null}
+          {hintLevel >= 1 && maxHintLevel >= 1 ? <p className="rounded-md bg-surface-soft p-md text-body-sm text-body">先想一下：这道题真正问的是「{q.knowledgePoint}」里的哪一个量？你在材料里定位到哪一行了？</p> : null}
+          {hintLevel >= 2 && maxHintLevel >= 2 ? <p className="rounded-md bg-surface-soft p-md text-body-sm text-body">策略提示：这道题用「{q.skillTarget}」的常规路径最稳；先列式再代入，别急着精算。</p> : null}
         </div>
       ) : null}
 
@@ -746,14 +768,23 @@ function WrongbookBridge({
   q: Question | undefined;
   choice: number | null;
 }): null {
+  // 每次提交只允许回写一次复测：写入会改变 wrongBook，若把它放进依赖会反复触发，
+  // 从而在没有第二次真实作答的情况下把「验证中」推成「已修复」。
+  const recordedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!submitted || !retestSourceId || !q || choice == null) return;
-    const entry = wrongBook.find((item) => item.questionId === retestSourceId);
-    if (entry) {
-      const next = recordRetest(entry, choice === q.answerIndex);
-      updateWrongEntry(retestSourceId, { retestLog: next.retestLog, status: next.status });
+    if (!submitted || !retestSourceId || !q || choice == null) {
+      if (!submitted) recordedFor.current = null;
+      return;
     }
-  }, [submitted, retestSourceId, q, choice, wrongBook, updateWrongEntry]);
+    const key = `${retestSourceId}:${q.id}:${choice}`;
+    if (recordedFor.current === key) return;
+    const entry = useProfileStore.getState().wrongBook.find((item) => item.questionId === retestSourceId);
+    if (!entry) return;
+    recordedFor.current = key;
+    const next = recordRetest(entry, choice === q.answerIndex);
+    updateWrongEntry(retestSourceId, { retestLog: next.retestLog, status: next.status });
+  }, [submitted, retestSourceId, q, choice, updateWrongEntry]);
+  void wrongBook;
   return null;
 }
 

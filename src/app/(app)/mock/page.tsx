@@ -18,6 +18,7 @@ import type { Question } from "@/lib/questions/types";
 import { MODULES } from "@/lib/profile/types";
 import { computeBaseline } from "@/lib/baseline/compute";
 import { nextExamExperiment, suggestModuleOrder } from "@/lib/insights/v1";
+import { suggestErrorCause } from "@/lib/errorcause/engine";
 
 const EXAM_SECONDS = 12 * 60;
 const PER_MODULE = 2;
@@ -196,6 +197,19 @@ export default function MockPage() {
     const nextOrder = suggestModuleOrder(pace);
     const experiment = nextExamExperiment(nextOrder, moduleOrder);
 
+    // F0189 错因结构：按模块实际用时推每题秒数，逐题给出确定性错因归类
+    const causeBuckets = new Map<string, number>();
+    for (const question of answered) {
+      const chosen = answers[question.id]!;
+      if (chosen === question.answerIndex) continue;
+      const moduleQuestions = paper.filter((item) => item.moduleId === question.moduleId).length;
+      const perQuestionSeconds = Math.max(1, Math.round((spent[question.moduleId] ?? 0) / Math.max(moduleQuestions, 1)));
+      const suggestion = suggestErrorCause(question, chosen, perQuestionSeconds);
+      const cause = suggestion.cause ?? "待确认";
+      causeBuckets.set(cause, (causeBuckets.get(cause) ?? 0) + 1);
+    }
+    const causeRows = [...causeBuckets.entries()].sort((a, b) => b[1] - a[1]);
+
     // F0191 关键变化：只突出最重要的改善与退化（模块正确率对比上一场）
     const keyChange = ((): string | null => {
       if (!prev) return null;
@@ -260,6 +274,19 @@ export default function MockPage() {
           </ul>
           {experiment ? <p className="mt-sm text-caption text-primary">下场策略实验：{experiment.hypothesis} 验证指标：{experiment.metric}。{experiment.nullResult}</p> : <p className="mt-sm text-caption text-muted">本场顺序与效率建议一致，下场可保持原策略。</p>}
         </Card>
+
+        {/* F0189 错因结构：区分知识、策略、审题与时间压力，而不是只报对错 */}
+        {causeRows.length > 0 ? (
+          <Card className="mt-lg">
+            <p className="text-label-md text-muted">错因结构（F0189）</p>
+            <ul className="mt-sm space-y-xs text-body-sm text-body">
+              {causeRows.map(([cause, count]) => (
+                <li key={cause}>{cause} · {count} 题</li>
+              ))}
+            </ul>
+            <p className="mt-xs text-caption text-muted">按每题实际用时与干扰项归类；「待确认」需要你在错题本二次判断。</p>
+          </Card>
+        ) : null}
 
         {keyChange ? (
           <Card className="mt-lg">

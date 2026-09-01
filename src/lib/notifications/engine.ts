@@ -65,14 +65,31 @@ export function buildExamNodeNotifications(
     }));
 }
 
+/**
+ * F0357 消息模板：后台可配置文案，`{metric}` 等占位符由调用方提供。
+ * 未配置或占位符缺失时回落内置文案，避免出现空标题。
+ */
+export function renderTemplate(
+  templates: Array<{ kind: string; template: string }> | null | undefined,
+  kind: string,
+  values: Record<string, string>,
+  fallback: string,
+): string {
+  const found = templates?.find((item) => item.kind === kind)?.template;
+  if (!found) return fallback;
+  const rendered = found.replace(/\{(\w+)\}/g, (_match, key: string) => values[key] ?? "");
+  return rendered.trim() === "" ? fallback : rendered;
+}
+
 export function buildReviewNotifications(
   due: Array<{ knowledgePoint: string; reason: string }>,
   now = new Date(),
+  templates?: Array<{ kind: string; template: string }> | null,
 ): NotificationEvent[] {
   return due.slice(0, 3).map((d, i) => ({
     id: `review-${i}-${d.knowledgePoint}`,
     kind: "复习到期" as const,
-    title: `「${d.knowledgePoint}」到复测时间了`,
+    title: renderTemplate(templates, "复习到期", { knowledgePoint: d.knowledgePoint }, `「${d.knowledgePoint}」到复测时间了`),
     body: d.reason,
     at: now.toISOString(),
     actionHref: "/train/wrongbook",

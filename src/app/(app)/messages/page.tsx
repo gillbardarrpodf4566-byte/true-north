@@ -1,13 +1,13 @@
 "use client";
 
 /** 消息中心（V1 F0316 系统消息 / F0317 学习消息统一管理）。 */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore } from "@/lib/profile/store";
 import { buildExamNodeNotifications, buildReviewNotifications, progressNotification, shouldNotify, trainingAccuracyProgress } from "@/lib/notifications/engine";
-import { computeAbilityDimensions } from "@/lib/ability/dimensions";
+import { computeAbilityDimensions, reviewOpportunities } from "@/lib/ability/dimensions";
 import { dueForReview } from "@/lib/plan/adaptive";
 
 interface Message {
@@ -19,8 +19,16 @@ interface Message {
 }
 
 export default function MessagesPage() {
-  const { taskResults, imports, weeklyReview, notifications, notificationState, attemptRecords, profile, dismissNotification } = useProfileStore();
+  const { taskResults, imports, weeklyReview, notifications, notificationState, attemptRecords, profile, membership, dismissNotification } = useProfileStore();
   const [filter, setFilter] = useState<"全部" | "学习" | "系统">("全部");
+  // F0357：后台消息模板参与文案渲染，未配置时用内置文案
+  const [templates, setTemplates] = useState<Array<{ kind: string; template: string }>>([]);
+  useEffect(() => {
+    void fetch("/api/operations/public")
+      .then((r) => r.json())
+      .then((d: { ok: boolean; templates?: typeof templates }) => setTemplates(d.ok ? d.templates ?? [] : []))
+      .catch(() => undefined);
+  }, []);
 
   const messages = useMemo<Message[]>(() => {
     const out: Message[] = [];
@@ -34,7 +42,14 @@ export default function MessagesPage() {
       ignoredStreak: notificationState.ignoredStreak,
     };
     const ability = computeAbilityDimensions(attemptRecords);
-    const due = dueForReview(ability.forgetting, new Set());
+    // F0091：曾掌握（同知识点累计答对 ≥2 次）才算「复习机会」，与从未掌握区分开
+    const correctCounts = new Map<string, number>();
+    for (const record of attemptRecords) {
+      if (record.correct) correctCounts.set(record.knowledgePoint, (correctCounts.get(record.knowledgePoint) ?? 0) + 1);
+    }
+    const mastered = new Set([...correctCounts.entries()].filter(([, count]) => count >= 2).map(([point]) => point));
+    const due = dueForReview(ability.forgetting, mastered);
+    const reviewChances = reviewOpportunities(ability.forgetting, mastered);
     // F0317 学习消息：从真实数据派生
     const doneCount = taskResults.length;
     if (doneCount > 0) {
@@ -73,10 +88,35 @@ export default function MessagesPage() {
       body: `当前提醒时段 ${notifications.window}；只在有行动价值时提醒。`,
       at: new Date().toISOString(),
     });
+    // F0314 会员到期提醒：由真实到期日推导，7 天内才提醒；到期后提示已失效
+    if (membership.expiresAt) {
+      const daysLeft = Math.ceil((new Date(membership.expiresAt).getTime() - Date.now()) / 86_400_000);
+      if (daysLeft <= 7) {
+        out.push({
+          id: `m-membership-${membership.expiresAt.slice(0, 10)}`,
+          category: "系统",
+          title: daysLeft >= 0 ? `会员将在 ${daysLeft} 天后到期` : "会员已到期",
+          body: daysLeft >= 0
+            ? `到期日 ${membership.expiresAt.slice(0, 10)}。到期后训练与错题不受影响，AI 额度会回到免费档。`
+            : `到期日 ${membership.expiresAt.slice(0, 10)}。已恢复免费档额度；历史数据完整保留。`,
+          at: new Date().toISOString(),
+        });
+      }
+    }
     // F0292 遗忘风险复习到期提醒
     if (shouldNotify(prefs, "复习到期").allowed) {
-      for (const n of buildReviewNotifications(due)) {
+      for (const n of buildReviewNotifications(due, new Date(), templates)) {
         out.push({ id: n.id, category: "学习", title: n.title, body: n.body, at: n.at });
+      }
+      // F0091：曾掌握又出现遗忘风险的知识点，单独提示「捡回来」的收益更高
+      if (reviewChances.length > 0) {
+        out.push({
+          id: `review-chance-${reviewChances.slice(0, 3).join("-")}`,
+          category: "学习",
+          title: `${reviewChances.length} 个曾掌握的知识点出现遗忘风险`,
+          body: `${reviewChances.slice(0, 3).join("、")}：你以前做对过，捡回来比学新知识点更快。`,
+          at: new Date().toISOString(),
+        });
       }
     }
     // F0291 考试节点提醒：仅在行动窗口内生成
@@ -99,7 +139,7 @@ export default function MessagesPage() {
       out.push({ id: progress.id, category: "学习", title: progress.title, body: progress.body, at: progress.at });
     }
     return out.sort((a, b) => b.at.localeCompare(a.at));
-  }, [taskResults.length, imports, weeklyReview, notifications, notificationState.ignoredStreak, attemptRecords, profile.goal]);
+  }, [taskResults.length, imports, weeklyReview, notifications, notificationState.ignoredStreak, attemptRecords, profile.goal, membership.expiresAt, templates]);
 
   const visible = messages.filter((m) => !notificationState.dismissed.includes(m.id) && (filter === "全部" || m.category === filter));
 

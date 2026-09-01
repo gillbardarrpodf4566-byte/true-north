@@ -470,9 +470,20 @@ export function questionById(id: string): Question | undefined {
   return allSeedQuestions().find((q) => q.id === id);
 }
 
-/** 训练集组装：模块内取题，从 offset 轮转（CL-03 step1：题量不足时降级复用组合） */
-export function buildTrainingSet(moduleId: ModuleId, count: number, offset = 0): Question[] {
-  const pool = seedQuestions(moduleId) ?? seedQuestions("言语理解");
-  const n = Math.min(Math.max(count, 1), pool.length);
+/**
+ * 训练集组装：模块内取题，从 offset 轮转（CL-03 step1：题量不足时降级复用组合）。
+ * F0107：给定 difficulty 时优先取该难度的题；该难度题量不足则回落全量池，
+ * 不为了凑难度而重复同一题。
+ */
+export function buildTrainingSet(
+  moduleId: ModuleId,
+  count: number,
+  offset = 0,
+  difficulty?: 1 | 2 | 3,
+): Question[] {
+  const full = seedQuestions(moduleId) ?? seedQuestions("言语理解");
+  const n = Math.min(Math.max(count, 1), full.length);
+  const matched = difficulty ? full.filter((q) => q.difficulty === difficulty) : [];
+  const pool = matched.length >= n ? matched : full;
   return Array.from({ length: n }, (_, i) => pool[(offset + i) % pool.length]!);
 }

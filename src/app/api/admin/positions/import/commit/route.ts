@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { authStaff, recordPositionImportRun, upsertPositions } from "@/lib/server/admin";
+import { authStaff, detectPositionChanges, recordPositionChanges, recordPositionImportRun, upsertPositions } from "@/lib/server/admin";
 import { getDb } from "@/lib/server/db";
 import { mapAndValidatePositions, parsePositionFile, suggestMapping, type PositionMapping } from "@/lib/jobs/position-import";
 
@@ -32,7 +32,10 @@ export async function POST(req: Request): Promise<NextResponse> {
     let inserted: { inserted: number; problems: string[] } | null = null;
     try {
       db.exec("BEGIN IMMEDIATE");
+      // F0275：先在同一事务内取差异，再写入，保证变更记录与职位数据一致。
+      const changes = detectPositionChanges(result.positions);
       inserted = upsertPositions(result.positions, auth.staff);
+      recordPositionChanges(changes);
       if (inserted.problems.length > 0 || inserted.inserted !== result.positions.length) {
         throw new Error("POSITION_WRITE_VALIDATION_FAILED");
       }

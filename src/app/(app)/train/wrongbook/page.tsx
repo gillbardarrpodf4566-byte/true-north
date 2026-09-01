@@ -25,7 +25,7 @@ const statusTone = {
 } as const;
 
 export default function WrongbookPage() {
-  const { wrongBook, updateWrongEntry, favorites } = useProfileStore();
+  const { wrongBook, updateWrongEntry, favorites, watchlist, toggleWatchlist } = useProfileStore();
 
   if (wrongBook.length === 0) {
     return (
@@ -143,6 +143,30 @@ export default function WrongbookPage() {
                   <p className="mt-xs text-caption text-muted">
                     {q ? `${q.moduleId} · ${q.knowledgePoint}` : ""}
                   </p>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      ) : null}
+
+      {/* F0150 关注库：答对但高耗时，需要提速而非纠错 */}
+      {watchlist.length > 0 ? (
+        <section className="mt-section">
+          <h2 className="text-title-lg text-ink">关注库（{watchlist.length}）</h2>
+          <p className="mt-xs text-caption text-muted">这些题答对了但明显偏慢（单题 ≥90 秒），问题是熟练度而不是对错。</p>
+          <ul className="mt-md space-y-md">
+            {watchlist.map((id) => {
+              const q = questionById(id);
+              return (
+                <li key={id} className="rounded-md border border-border bg-surface p-md">
+                  <div className="flex items-start justify-between gap-md">
+                    <p className="text-body-sm text-body">{q ? q.stem.split("\n")[0] : id}</p>
+                    <button type="button" onClick={() => toggleWatchlist(id)} className="shrink-0 text-caption text-muted underline-offset-2 hover:underline">
+                      移出关注
+                    </button>
+                  </div>
+                  <p className="mt-xs text-caption text-muted">{q ? `${q.moduleId} · ${q.knowledgePoint}` : ""}</p>
                 </li>
               );
             })}

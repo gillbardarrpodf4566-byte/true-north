@@ -155,6 +155,8 @@ interface ProfileState {
   todayMinutesOverride: number | null;
   /** 周复盘（状态机：待生成→待确认→已重排；禁止静默改变下周目标） */
   weeklyReview: WeeklyReview | null;
+  /** F0284 历史周复盘：保留已确认的周，用于计划与结果的前后对比 */
+  weeklyReviewHistory: WeeklyReview[];
   /** AI 对话续接（F0174：同一学习上下文的最近对话） */
   coachHistory: Array<{ id: string; role: "user" | "coach"; text: string; context: string; at: string }>;
   /** AI 回答反馈与举报（F0178/F0179/F0319） */
@@ -183,6 +185,8 @@ interface ProfileState {
   taskAdjustments: Array<{ taskId: string; reason: "时间不足" | "太难" | "计划不合理" | "其他"; at: string; change: string }>;
   /** 关注库：高耗时/低信心但答对的题（F0150） */
   watchlist: string[];
+  /** F0226 申论专项处方：用户确认后进入今日可执行任务 */
+  essayPlanItems: Array<{ id: string; title: string; minutes: number; successCriteria: string; addedAt: string; doneAt: string | null }>;
   /** 通知偏好（F0290/F0324/F0294） */
   notifications: { taskReminder: boolean; diagnosisReady: boolean; examDeadline: boolean; review: boolean; progress: boolean; window: string; proactive: boolean };
   /** F0293 连续忽略降频、F0316/0317 消息已读状态 */
@@ -223,6 +227,8 @@ interface ProfileState {
   addAiFeedback: (f: { target: string; helpful: boolean | null; reported: boolean; reason: string }) => void;
   purchaseMembership: (plan: Membership["plan"], ok: boolean) => void;
   restorePurchase: () => void;
+  /** F0313：记录一次 AI 额度消耗（批改/教练等真实调用后） */
+  consumeAiQuota: () => void;
   requestRefund: (channel: Membership["refunds"][number]["channel"], reason: string) => void;
   toggleFavorite: (questionId: string) => void;
   setJobProfile: (p: import("@/lib/jobs/types").JobSeekerProfile) => void;
@@ -234,6 +240,8 @@ interface ProfileState {
   ) => void;
   postponeTask: (date: string, taskId: string) => void;
   addTaskAdjustment: (a: { taskId: string; reason: "时间不足" | "太难" | "计划不合理" | "其他"; change: string }) => void;
+  addEssayPlanItem: (item: { title: string; minutes: number; successCriteria: string }) => void;
+  completeEssayPlanItem: (id: string) => void;
   toggleWatchlist: (questionId: string) => void;
   setNotifications: (n: Partial<ProfileState["notifications"]>) => void;
   dismissNotification: (id: string) => void;
@@ -309,6 +317,7 @@ export const useProfileStore = create<ProfileState>()(
       wrongBook: [],
       todayMinutesOverride: null,
       weeklyReview: null,
+      weeklyReviewHistory: [],
       coachHistory: [],
       aiFeedback: [],
       membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, aiQuota: 20, usedAi: 0, expiresAt: null, orders: [], refunds: [] },
@@ -321,6 +330,7 @@ export const useProfileStore = create<ProfileState>()(
       postponedTasks: {},
       taskAdjustments: [],
       watchlist: [],
+      essayPlanItems: [],
       notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, review: true, progress: true, window: "20:00", proactive: true },
       notificationState: { ignoredStreak: 0, dismissed: [] },
       learningPreferences: { resources: [], mode: "混合", content: "文字", coachStyle: "温和", proactive: true },
@@ -374,7 +384,13 @@ export const useProfileStore = create<ProfileState>()(
           ),
         })),
       setTodayMinutesOverride: (todayMinutesOverride) => set({ todayMinutesOverride }),
-      setWeeklyReview: (weeklyReview) => set({ weeklyReview }),
+      // F0284：已确认的周复盘归档，供下一周做「计划 vs 结果」对比；同一周只保留一条。
+      setWeeklyReview: (weeklyReview) =>
+        set((s) => {
+          if (weeklyReview.status !== "已重排") return { weeklyReview };
+          const rest = s.weeklyReviewHistory.filter((item) => item.weekKey !== weeklyReview.weekKey);
+          return { weeklyReview, weeklyReviewHistory: [...rest, weeklyReview].slice(-12) };
+        }),
       addCoachTurns: (turns) => set((s) => ({ coachHistory: [...s.coachHistory, ...turns].slice(-40) })),
       addAiFeedback: (f) =>
         set((s) => ({
@@ -401,11 +417,25 @@ export const useProfileStore = create<ProfileState>()(
             ],
           },
         })),
+      /**
+       * F0311 恢复购买：幂等。以成功订单本身的时间与套餐推导到期日，
+       * 重复点击得到同一结果，不会反复延长权益；年度套餐按 365 天恢复。
+       */
       restorePurchase: () =>
         set((s) => {
           const last = [...s.membership.orders].reverse().find((o) => o.status === "成功");
-          return last ? { membership: { ...s.membership, plan: last.plan, aiQuota: 9999, expiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString() } } : {} as Partial<ProfileState>;
+          if (!last) return {} as Partial<ProfileState>;
+          const days = last.plan === "pro-yearly" ? 365 : 30;
+          const expiresAt = new Date(new Date(last.at).getTime() + days * 86_400_000).toISOString();
+          if (s.membership.plan === last.plan && s.membership.expiresAt === expiresAt) {
+            return {} as Partial<ProfileState>;
+          }
+          return { membership: { ...s.membership, plan: last.plan, aiQuota: 9999, expiresAt } };
         }),
+      consumeAiQuota: () =>
+        set((s) => ({
+          membership: { ...s.membership, usedAi: Math.min(s.membership.aiQuota, s.membership.usedAi + 1) },
+        })),
       requestRefund: (channel, reason) =>
         set((s) => ({
           membership: {
@@ -444,6 +474,25 @@ export const useProfileStore = create<ProfileState>()(
           return { postponedTasks: { ...s.postponedTasks, [date]: [...list, taskId] } };
         }),
       addTaskAdjustment: (a) => set((s) => ({ taskAdjustments: [...s.taskAdjustments, { ...a, at: new Date().toISOString() }] })),
+      addEssayPlanItem: (item) =>
+        set((s) => {
+          // 同标题只保留一条未完成项，重复点击不产生重复任务。
+          if (s.essayPlanItems.some((existing) => existing.title === item.title && existing.doneAt == null)) {
+            return {} as Partial<ProfileState>;
+          }
+          return {
+            essayPlanItems: [
+              ...s.essayPlanItems,
+              { id: `essay-plan-${item.title}`, ...item, addedAt: new Date().toISOString(), doneAt: null },
+            ],
+          };
+        }),
+      completeEssayPlanItem: (id) =>
+        set((s) => ({
+          essayPlanItems: s.essayPlanItems.map((item) =>
+            item.id === id && item.doneAt == null ? { ...item, doneAt: new Date().toISOString() } : item,
+          ),
+        })),
       toggleWatchlist: (questionId) => set((s) => ({ watchlist: s.watchlist.includes(questionId) ? s.watchlist.filter((id) => id !== questionId) : [...s.watchlist, questionId] })),
       setNotifications: (n) => set((s) => ({ notifications: { ...s.notifications, ...n } })),
       dismissNotification: (id) => set((s) => ({
@@ -477,6 +526,7 @@ export const useProfileStore = create<ProfileState>()(
           wrongBook: [],
           todayMinutesOverride: null,
           weeklyReview: null,
+          weeklyReviewHistory: [],
           coachHistory: [],
           aiFeedback: [],
           membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, aiQuota: 20, usedAi: 0, expiresAt: null, orders: [], refunds: [] },
@@ -489,6 +539,7 @@ export const useProfileStore = create<ProfileState>()(
           postponedTasks: {},
           taskAdjustments: [],
           watchlist: [],
+          essayPlanItems: [],
           notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, review: true, progress: true, window: "20:00", proactive: true },
       notificationState: { ignoredStreak: 0, dismissed: [] },
           learningPreferences: { resources: [], mode: "混合", content: "文字", coachStyle: "温和", proactive: true },
@@ -523,6 +574,8 @@ export const useProfileStore = create<ProfileState>()(
           diagnosisHistory: old.diagnosisHistory ?? current.diagnosisHistory,
           taskAdjustments: old.taskAdjustments ?? current.taskAdjustments,
           watchlist: old.watchlist ?? current.watchlist,
+          weeklyReviewHistory: old.weeklyReviewHistory ?? current.weeklyReviewHistory,
+          essayPlanItems: old.essayPlanItems ?? current.essayPlanItems,
         };
       },
     },

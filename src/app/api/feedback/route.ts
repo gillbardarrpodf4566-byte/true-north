@@ -28,12 +28,15 @@ export async function POST(req: Request): Promise<NextResponse> {
       ? "批改偏差"
       : target.startsWith("session") || target.startsWith("parse")
         ? "解析错误"
-        : "其他";
+        : target.startsWith("support")
+          ? "人工支持"
+          : "其他";
   const auth = req.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
   const user = userFromToken(token);
   const ticketId = createTicket({ category, type, text, hasScreenshot: body.hasScreenshot === true });
 
+  // F0322：人工支持工单不进 AI 质量候选池，但需要把工单号回给用户以便追踪。
   const aiRelated = ["解析错误", "诊断不准", "批改偏差", "幻觉"].includes(category);
   const candidate = aiRelated
     ? createAiFeedbackCandidate({ ticketId, category, rawText: text, invocationId: body.invocationId, userId: user?.id ?? null })
@@ -41,6 +44,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   return NextResponse.json({
     ok: true,
     queued: true,
+    ticketId,
     candidate: candidate ? {
       id: candidate.id,
       provenanceStatus: candidate.provenanceStatus,

@@ -149,6 +149,24 @@ export function gradeEssay(submission: { id: string; text: string }, q: EssayQue
     seen.add(key);
   }
 
+  // ---------- 逐句批注（F0214）：复用已算出的句级信号，不额外推断 ----------
+  const sentenceNotes: EssayGrade["sentenceNotes"] = [];
+  const hitByIndex = new Map(hits.map((h) => [h.sentenceIndex, h]));
+  const redundantSentences = new Set(redundancies.map((r) => r.sentence));
+  for (const s of sentences) {
+    const notes: string[] = [];
+    const hit = hitByIndex.get(s.index);
+    if (hit) notes.push(`命中得分点「${hit.label}」（${hit.points} 分）`);
+    if (redundantSentences.has(s.text)) notes.push("与前文重复，属于无效信息");
+    if (s.text.length > 80) notes.push("句子过长，建议拆分以便阅卷定位");
+    for (const w of normSuggestions) {
+      if (s.text.includes(w.bad)) notes.push(`用词不规范：「${w.bad}」建议改为「${w.good}」`);
+    }
+    if (notes.length > 0) {
+      sentenceNotes.push({ sentenceIndex: s.index, sentence: s.text, note: notes.join("；") });
+    }
+  }
+
   // ---------- 置信度（F0212） ----------
   let confidence: EssayGrade["confidence"];
   let confidenceNote: string;
@@ -218,6 +236,7 @@ export function gradeEssay(submission: { id: string; text: string }, q: EssayQue
     hits,
     misses,
     redundancies,
+    sentenceNotes,
     structureIssues,
     normSuggestions,
     wordCount,

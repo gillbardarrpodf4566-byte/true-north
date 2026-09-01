@@ -3,6 +3,7 @@
 /** 申论报告 — F0224 趋势 / F0225 高频问题 / F0226 专项处方。 */
 import Link from "next/link";
 import { useMemo } from "react";
+import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
@@ -14,6 +15,9 @@ import { usePublishedEssays } from "@/lib/essay/usePublished";
 export default function EssayReportPage() {
   const essaySubmissions = useProfileStore((s) => s.essaySubmissions);
   const essayGrades = useProfileStore((s) => s.essayGrades);
+  const essayPlanItems = useProfileStore((s) => s.essayPlanItems);
+  const addEssayPlanItem = useProfileStore((s) => s.addEssayPlanItem);
+  const completeEssayPlanItem = useProfileStore((s) => s.completeEssayPlanItem);
   const { essays } = usePublishedEssays();
 
   const report = useMemo(() => {
@@ -83,14 +87,32 @@ export default function EssayReportPage() {
         <section className="mt-xl">
           <h2 className="text-title-lg text-ink">下周专项处方</h2>
           <ul className="mt-md space-y-md">
-            {report.nextWeekPlan.map((p) => (
-              <li key={p.title} className="rounded-lg border border-border bg-surface p-lg">
-                <p className="text-body-md text-ink">{p.title}</p>
-                <p className="mt-xs text-caption text-muted">
-                  预计 {p.minutes} 分钟 · {p.successCriteria}
-                </p>
-              </li>
-            ))}
+            {report.nextWeekPlan.map((p) => {
+              const existing = essayPlanItems.find((item) => item.title === p.title);
+              return (
+                <li key={p.title} className="rounded-lg border border-border bg-surface p-lg">
+                  <p className="text-body-md text-ink">{p.title}</p>
+                  <p className="mt-xs text-caption text-muted">
+                    预计 {p.minutes} 分钟 · {p.successCriteria}
+                  </p>
+                  {/* F0226：处方必须可执行——加入今日计划并可回写完成 */}
+                  {existing?.doneAt ? (
+                    <p className="mt-sm text-caption text-success">已完成于 {new Date(existing.doneAt).toLocaleDateString("zh-CN")}</p>
+                  ) : existing ? (
+                    <div className="mt-sm flex items-center gap-md">
+                      <span className="text-caption text-primary">已加入今日计划</span>
+                      <button type="button" onClick={() => completeEssayPlanItem(existing.id)} className="text-caption text-muted underline-offset-2 hover:underline">
+                        标记完成
+                      </button>
+                    </div>
+                  ) : (
+                    <Button className="mt-sm" variant="secondary" onClick={() => addEssayPlanItem(p)}>
+                      加入今日计划
+                    </Button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}

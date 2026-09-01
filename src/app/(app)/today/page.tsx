@@ -47,6 +47,9 @@ export default function TodayPage() {
     postponedTasks,
     postponeTask,
     addTaskAdjustment,
+    essayPlanItems,
+    completeEssayPlanItem,
+    learningPreferences,
   } = useProfileStore();
   const [adjustTask, setAdjustTask] = useState<string | null>(null);
 
@@ -54,12 +57,22 @@ export default function TodayPage() {
   const [showTimeSheet, setShowTimeSheet] = useState(false);
   const [replacementTask, setReplacementTask] = useState<string | null>(null);
   const [lightTask, setLightTask] = useState<string | null>(null);
+  // F0356 运营公告：只读已发布内容，失败时静默不打扰
+  const [notices, setNotices] = useState<Array<{ id: string; title: string; body: string }>>([]);
+  useEffect(() => {
+    void fetch("/api/operations/public")
+      .then((r) => r.json())
+      .then((d: { ok: boolean; notices?: Array<{ id: string; title: string; body: string }> }) => setNotices(d.ok ? d.notices ?? [] : []))
+      .catch(() => undefined);
+  }, []);
 
   const defaultBudget = todayBudget(
     profile.conditions?.weekdayMinutes ?? 60,
     profile.conditions?.weekendMinutes ?? 90,
   );
-  const budget = todayMinutesOverride ?? defaultBudget;
+  // F0025 练习偏好真实生效：短练收紧单日预算上限，长练放宽，混合保持默认
+  const preferenceCap = learningPreferences.mode === "短练" ? 25 : learningPreferences.mode === "长练" ? 120 : 90;
+  const budget = todayMinutesOverride ?? Math.min(defaultBudget, preferenceCap);
 
   // 诊断与处方按需生成/刷新（CL-02 step1-2）
   useEffect(() => {
@@ -126,6 +139,8 @@ export default function TodayPage() {
         today: new Date(),
       })
     : [];
+  // F0226：申论专项处方进入今日待执行清单
+  const pendingEssayPlans = essayPlanItems.filter((item) => item.doneAt == null);
   // F0117：延后的任务今天不再显示
   const postponedToday = postponedTasks[today] ?? [];
   const visibleTasks = (prescription?.tasks ?? []).filter(
@@ -135,6 +150,14 @@ export default function TodayPage() {
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
       <Header daysLeft={daysLeft} />
+
+      {/* F0356 运营公告：已发布内容才出现，且不抢占今日焦点 */}
+      {notices.map((notice) => (
+        <Card key={notice.id} className="mt-md" tone="faint" padding="dense">
+          <p className="text-label-md text-primary">{notice.title}</p>
+          <p className="mt-xxs text-caption text-body">{notice.body}</p>
+        </Card>
+      ))}
 
       {/* Above the fold：单一焦点（§9.1 Primary choice = 1） */}
       <div className="mt-lg">
@@ -279,11 +302,27 @@ export default function TodayPage() {
               ) : null}
             </div>
           ))}
-          {visibleTasks.length === 0 ? (
+          {visibleTasks.length === 0 && pendingEssayPlans.length === 0 ? (
             <p className="text-body-sm text-muted">
               今天的任务都完成或延后了。休息也是计划的一部分。
             </p>
           ) : null}
+          {/* F0226：来自申论报告的专项处方，可在今日直接执行并回写完成 */}
+          {pendingEssayPlans.map((item) => (
+            <div key={item.id} className="rounded-lg border border-border bg-surface p-lg">
+              <div className="flex items-start justify-between gap-md">
+                <p className="text-body-md text-ink">{item.title}</p>
+                <Chip tone="insight">申论专项</Chip>
+              </div>
+              <p className="mt-xs text-caption text-muted">预计 {item.minutes} 分钟 · {item.successCriteria}</p>
+              <div className="mt-sm flex items-center gap-md">
+                <Link href="/essay" className="text-label-md text-primary">去申论教练 →</Link>
+                <button type="button" onClick={() => completeEssayPlanItem(item.id)} className="text-caption text-muted underline-offset-2 hover:underline">
+                  标记完成
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       </section>
 

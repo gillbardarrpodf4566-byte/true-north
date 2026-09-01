@@ -1,6 +1,12 @@
-import { Card } from "@/components/ui/Card";
+"use client";
 
-/** 帮助中心（F0321）：常见问题与使用指南。 */
+import { useState } from "react";
+import Link from "next/link";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
+import { getToken } from "@/lib/auth/client";
+
+/** 帮助中心（F0321 常见问题）+ 人工支持入口（F0322 转人工并可追踪状态）。 */
 const FAQ: Array<{ q: string; a: string }> = [
   {
     q: "见岸和刷题 App 有什么不同？",
@@ -25,6 +31,37 @@ const FAQ: Array<{ q: string; a: string }> = [
 ];
 
 export default function HelpPage() {
+  const [text, setText] = useState("");
+  const [ticket, setTicket] = useState<{ id: number; status: string } | null>(null);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // F0322：转人工生成真实工单，并把工单号回显给用户，而不是只提示「联系人工客服」。
+  const escalate = async (): Promise<void> => {
+    if (text.trim().length < 5 || sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const token = getToken();
+      const res = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({ type: "问题", target: "support:manual", text: text.trim(), hasScreenshot: false }),
+      });
+      const data = (await res.json()) as { ok: boolean; ticketId?: number; message?: string };
+      if (!data.ok) {
+        setError(data.message ?? "提交失败，请稍后重试。");
+        return;
+      }
+      setTicket({ id: data.ticketId ?? 0, status: "待处理" });
+      setText("");
+    } catch {
+      setError("网络异常，问题没有提交。重试不会产生重复工单。");
+    } finally {
+      setSending(false);
+    }
+  };
+
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
       <h1 className="text-headline-xl text-ink">帮助中心</h1>
@@ -36,8 +73,40 @@ export default function HelpPage() {
           </Card>
         ))}
       </div>
+
+      <Card className="mt-xl">
+        <p className="text-title-md text-ink">联系人工客服</p>
+        <p className="mt-xs text-body-sm text-muted">
+          FAQ 没解决的问题可以转人工。提交后会生成工单号，客服在后台按顺序处理。
+        </p>
+        <label className="mt-md block">
+          <span className="text-label-md text-muted">问题描述</span>
+          <textarea
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            rows={4}
+            aria-label="人工客服问题描述"
+            placeholder="例：会员已支付但权益没有生效，订单时间是今天 10:20。"
+            className="mt-xs w-full rounded-sm border border-border-strong bg-surface p-md text-body-md text-ink focus:border-primary focus:outline-none"
+          />
+        </label>
+        <Button className="mt-md" fullWidth disabled={text.trim().length < 5} loading={sending} onClick={() => void escalate()}>
+          转人工客服
+        </Button>
+        {ticket ? (
+          <p role="status" className="mt-md text-body-sm text-success">
+            已创建人工工单{ticket.id > 0 ? ` #${ticket.id}` : ""}，当前状态：{ticket.status}。处理结果会在此工单更新。
+          </p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="mt-md text-body-sm text-error">{error}</p>
+        ) : null}
+      </Card>
+
       <p className="mt-xl text-caption text-muted">
-        没有找到答案？在「反馈」里提交问题，或查看「AI 数据使用说明」了解数据边界。
+        也可以在
+        <Link href="/feedback" className="mx-xxs text-primary underline-offset-2 hover:underline">反馈</Link>
+        提交产品建议，或查看「AI 数据使用说明」了解数据边界。
       </p>
     </main>
   );
