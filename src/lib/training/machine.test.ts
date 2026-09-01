@@ -116,9 +116,12 @@ describe("错因引擎（F0149–F0157，禁止默认归因粗心）", () => {
     };
     const confirmed = confirmCause(entry, "计算错误");
     expect(confirmed.status).toBe("验证中");
-    const once = recordRetest(confirmed, true);
+    const firstAt = new Date("2026-08-21T10:00:00.000Z");
+    const once = recordRetest(confirmed, true, firstAt);
     expect(once.status).toBe("验证中");
-    const twice = recordRetest(once, true);
+    // F0163：背靠背再答对只停在验证中，必须隔开一天才算已修复
+    expect(recordRetest(once, true, new Date("2026-08-21T11:00:00.000Z")).status).toBe("验证中");
+    const twice = recordRetest(once, true, new Date("2026-08-22T11:00:00.000Z"));
     expect(twice.status).toBe("已修复");
     const relapsed = recordRetest(confirmed, false);
     expect(relapsed.status).toBe("复发");

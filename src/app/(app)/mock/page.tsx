@@ -29,7 +29,7 @@ function buildPaper(): Question[] {
 
 export default function MockPage() {
   const router = useRouter();
-  const { imports, addImport, setBaseline, profile } = useProfileStore();
+  const { imports, addImport, setBaseline, profile, mockPlan, setMockPlan } = useProfileStore();
   const [phase, setPhase] = useState<"before" | "during" | "after">("before");
   /** F0181 阶段模考：短模考/整卷由当前阶段选择 */
   const [examMode, setExamMode] = useState<"短模考" | "整卷">("整卷");
@@ -140,6 +140,21 @@ export default function MockPage() {
             <button key={m} type="button" aria-pressed={examMode === m} onClick={() => setExamMode(m)} className={`rounded-full border px-md py-sm text-label-md ${examMode === m ? "border-primary bg-primary-faint text-primary-active" : "border-border bg-surface text-muted"}`}>{m}</button>
           ))}
         </div>
+        {/* F0196/F0197：上场保存的模块顺序预算与待验证实验，开考前可见 */}
+        {mockPlan ? (
+          <Card className="mt-md" tone="faint" padding="dense">
+            <p className="text-label-md text-muted">上场保存的作答计划</p>
+            <ul className="mt-xs space-y-xxs text-caption text-body">
+              {mockPlan.budgets.map((item) => (
+                <li key={item.moduleId}>第 {item.suggestedOrder} 做 {item.moduleId} · 预算约 {item.suggestedMinutes} 分钟</li>
+              ))}
+            </ul>
+            {mockPlan.experiment ? (
+              <p className="mt-xs text-caption text-primary">待验证：{mockPlan.experiment.hypothesis}（指标：{mockPlan.experiment.metric}）</p>
+            ) : null}
+          </Card>
+        ) : null}
+
         <Card className="mt-md">
           <dl className="space-y-xs text-body-sm text-body">
             <div className="flex gap-sm">
@@ -196,6 +211,21 @@ export default function MockPage() {
     });
     const nextOrder = suggestModuleOrder(pace);
     const experiment = nextExamExperiment(nextOrder, moduleOrder);
+
+    // F0197：上一场记录的实验，本场用实际结果验证；不做则如实说明未执行
+    const priorExperiment = mockPlan?.experiment ?? null;
+    const experimentOutcome = priorExperiment
+      ? (() => {
+          const followed = priorExperiment.hypothesis.includes(moduleOrder.filter(Boolean)[0] ?? "\u0000");
+          const delta = priorExperiment.baselineScore != null ? round1(totalScore - priorExperiment.baselineScore) : null;
+          return {
+            followed,
+            text: followed
+              ? `已按上场假设执行（${priorExperiment.metric}）：${delta == null ? "缺少可比基线" : delta > 0 ? `总分 +${delta}，假设成立` : delta < 0 ? `总分 ${delta}，假设不成立` : "总分持平，无法判定"}。`
+              : `上场假设未执行（本场顺序与建议不同），${priorExperiment.metric} 无法判定。`,
+          };
+        })()
+      : null;
 
     // F0189 错因结构：按模块实际用时推每题秒数，逐题给出确定性错因归类
     const causeBuckets = new Map<string, number>();
@@ -273,6 +303,19 @@ export default function MockPage() {
             {nextOrder.map((s) => <li key={s.moduleId}>建议第 {s.suggestedOrder} 做 {s.moduleId} · 预算约 {s.suggestedMinutes} 分钟：{s.rationale}</li>)}
           </ul>
           {experiment ? <p className="mt-sm text-caption text-primary">下场策略实验：{experiment.hypothesis} 验证指标：{experiment.metric}。{experiment.nullResult}</p> : <p className="mt-sm text-caption text-muted">本场顺序与效率建议一致，下场可保持原策略。</p>}
+          {/* F0197：上一场实验的验证结论 */}
+          {experimentOutcome ? <p className="mt-sm text-caption text-body">上场实验验证：{experimentOutcome.text}</p> : null}
+          {/* F0196：把下场的模块时间预算落库，下次开考前可见 */}
+          <Button
+            className="mt-md"
+            variant="secondary"
+            onClick={() => setMockPlan({
+              budgets: nextOrder.map((item) => ({ moduleId: item.moduleId, suggestedOrder: item.suggestedOrder, suggestedMinutes: item.suggestedMinutes })),
+              experiment: experiment ? { hypothesis: experiment.hypothesis, metric: experiment.metric, recordedAt: new Date().toISOString(), baselineScore: totalScore } : null,
+            })}
+          >
+            保存为下场计划
+          </Button>
         </Card>
 
         {/* F0189 错因结构：区分知识、策略、审题与时间压力，而不是只报对错 */}

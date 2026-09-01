@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore } from "@/lib/profile/store";
-import { confirmCause, remediationFor } from "@/lib/errorcause/engine";
+import { confirmCause, remediationTaskFor, retestAvailableIn } from "@/lib/errorcause/engine";
 import { questionById } from "@/lib/questions/seed";
 import type { ErrorCause } from "@/lib/questions/types";
 
@@ -104,14 +104,30 @@ export default function WrongbookPage() {
               {entry.confirmedCause ? (
                 <div className="mt-md">
                   <p className="text-label-md text-muted">修复建议</p>
-                  <p className="mt-xs text-body-sm text-body">
-                    {q ? remediationFor(entry, q) : "先重做原题。"}
-                  </p>
-                  {entry.status === "验证中" ? (
-                    <Link href={`/train/session/retest-${entry.questionId}`} className="mt-sm inline-block">
-                      <Button variant="secondary">开始近邻题复测</Button>
-                    </Link>
-                  ) : null}
+                  {/* F0161：给出可执行任务——时间预算 + 成功判据 + 入口 */}
+                  {q ? (() => {
+                    const task = remediationTaskFor(entry, q);
+                    const waitHours = retestAvailableIn(entry);
+                    return (
+                      <>
+                        <p className="mt-xs text-body-sm text-ink">{task.title} · 约 {task.minutes} 分钟</p>
+                        <p className="mt-xxs text-caption text-body">{task.action}</p>
+                        <p className="mt-xxs text-caption text-muted">达标判据：{task.successCriteria}</p>
+                        {entry.status === "验证中" || entry.status === "复发" ? (
+                          waitHours == null ? (
+                            <Link href={task.href} className="mt-sm inline-block">
+                              <Button variant="secondary">开始近邻题复测</Button>
+                            </Link>
+                          ) : (
+                            // F0163：间隔未到时不提供复测入口，避免背背刷刷成「已修复」
+                            <p className="mt-sm text-caption text-muted">间隔复测：还需等待约 {waitHours} 小时，隔一天再测才算真掌握。</p>
+                          )
+                        ) : null}
+                      </>
+                    );
+                  })() : (
+                    <p className="mt-xs text-body-sm text-body">先重做原题。</p>
+                  )}
                   {entry.status === "复发" ? (
                     <p className="mt-sm text-caption text-warning">
                       复发了，已重新排入训练处方，不要灰心——复发是修复过程的一部分。

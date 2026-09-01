@@ -257,6 +257,12 @@ function open(): DatabaseSync {
       schema_version TEXT,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS user_entitlements (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      bonus_days INTEGER NOT NULL DEFAULT 0,
+      bonus_quota INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS position_changes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       qid TEXT NOT NULL,

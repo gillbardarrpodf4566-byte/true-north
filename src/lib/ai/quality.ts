@@ -110,22 +110,27 @@ export interface ErrorCandidate {
   promoted: boolean;
 }
 
+/**
+ * F0381 失败聚类：按错误类型聚合；提供了来源版本时进一步按
+ * 「类型 + 模型 + Prompt」细分，便于定位是哪个版本引入的退化。
+ */
 export function clusterFailures(
-  candidates: Array<{ category: string; text: string }>,
-): Array<{ cluster: string; count: number; sample: string }> {
-  const map = new Map<string, { count: number; sample: string }>();
+  candidates: Array<{ category: string; text: string; modelVersion?: string | null; promptVersion?: string | null }>,
+): Array<{ cluster: string; count: number; sample: string; modelVersion?: string | null; promptVersion?: string | null }> {
+  const map = new Map<string, { count: number; sample: string; modelVersion?: string | null; promptVersion?: string | null }>();
   for (const c of candidates) {
-    const cluster = (["解析错误", "诊断不准", "幻觉", "批改偏差"] as const).includes(
-      c.category as never,
-    )
+    const category = (["解析错误", "诊断不准", "幻觉", "批改偏差"] as const).includes(c.category as never)
       ? c.category
       : "其他";
-    const e = map.get(cluster) ?? { count: 0, sample: c.text.slice(0, 40) };
+    // 有可信来源版本时把版本并入聚类键；没有则退回纯类型，不臆造版本。
+    const versioned = c.modelVersion || c.promptVersion;
+    const cluster = versioned ? `${category} · ${c.modelVersion ?? "未知模型"}/${c.promptVersion ?? "未知Prompt"}` : category;
+    const e = map.get(cluster) ?? { count: 0, sample: c.text.slice(0, 40), modelVersion: c.modelVersion ?? null, promptVersion: c.promptVersion ?? null };
     e.count += 1;
     map.set(cluster, e);
   }
   return [...map.entries()]
-    .map(([cluster, v]) => ({ cluster, count: v.count, sample: v.sample }))
+    .map(([cluster, v]) => ({ cluster, count: v.count, sample: v.sample, modelVersion: v.modelVersion, promptVersion: v.promptVersion }))
     .sort((a, b) => b.count - a.count);
 }
 

@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore, type BaselineSnapshot } from "@/lib/profile/store";
 
 export default function BaselinePage() {
-  const { baseline, profile } = useProfileStore();
+  const { baseline, profile, imports } = useProfileStore();
 
   if (!baseline) {
     return (
@@ -49,6 +49,27 @@ export default function BaselinePage() {
           <ModuleBaselineRow key={m.id} row={m} />
         ))}
       </div>
+
+      {/* F0048 证据入口：基线由哪些导入构成、各自的解析版本与证据留存状态 */}
+      {imports.length > 0 ? (
+        <details className="mt-lg rounded-md border border-border bg-surface p-md">
+          <summary className="cursor-pointer text-body-sm text-primary">这条基线的数据来源（{imports.length} 次导入）</summary>
+          <ul className="mt-sm space-y-sm">
+            {[...imports].reverse().slice(0, 6).map((record) => (
+              <li key={record.id} className="text-caption text-body">
+                <p>{record.examLabel} · {record.source} · {record.importedAt.slice(0, 10)}</p>
+                <p className="mt-xxs text-muted">
+                  解析版本 {record.sourceRef?.parserVersion ?? "手工录入"} ·
+                  {record.sourceRef?.rawEvidence
+                    ? ` 原始证据：${record.sourceRef.rawEvidence.startsWith("[") ? record.sourceRef.rawEvidence.slice(1, -1) : "已留存引用"}`
+                    : " 未留存原始证据"}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-sm text-micro text-muted-soft">截图留存策略可在「我的 · 数据与隐私」调整；选择确认后自动删除时这里只保留解析指纹。</p>
+        </details>
+      ) : null}
 
       <Card className="mt-xl" tone="surface">
         <p className="text-body-sm text-body">

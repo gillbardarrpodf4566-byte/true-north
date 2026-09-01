@@ -24,7 +24,7 @@ import { diagnose } from "@/lib/diagnosis/engine";
 import { buildPrescription, todayBudget } from "@/lib/prescription/engine";
 import { checkGoalConflicts } from "@/lib/profile/conflicts";
 import { computeAbilityDimensions } from "@/lib/ability/dimensions";
-import { enhancePrescription, lightenTask, replacementFor } from "@/lib/plan/adaptive";
+import { adjustPlanForReason, enhancePrescription, lightenTask, replacementFor } from "@/lib/plan/adaptive";
 
 const TIME_CHOICES = [20, 40, 60, 90];
 
@@ -47,6 +47,7 @@ export default function TodayPage() {
     postponedTasks,
     postponeTask,
     addTaskAdjustment,
+    taskAdjustments,
     essayPlanItems,
     completeEssayPlanItem,
     learningPreferences,
@@ -72,7 +73,20 @@ export default function TodayPage() {
   );
   // F0025 练习偏好真实生效：短练收紧单日预算上限，长练放宽，混合保持默认
   const preferenceCap = learningPreferences.mode === "短练" ? 25 : learningPreferences.mode === "长练" ? 120 : 90;
-  const budget = todayMinutesOverride ?? Math.min(defaultBudget, preferenceCap);
+  // F0116：昨天登记的未完成原因真实作用于今天的预算，而不是只存下来
+  const yesterdayAdjustment = (() => {
+    const cutoff = new Date(Date.now() - 36 * 3_600_000).toISOString();
+    const recent = taskAdjustments.filter((item) => item.at >= cutoff);
+    return recent[recent.length - 1] ?? null;
+  })();
+  const reasonPlan = yesterdayAdjustment ? adjustPlanForReason(yesterdayAdjustment.reason) : null;
+  const baseCap = Math.min(defaultBudget, preferenceCap);
+  const budget = todayMinutesOverride
+    ?? (reasonPlan?.action === "缩量"
+      ? Math.round(baseCap * 0.6)
+      : reasonPlan?.action === "重排"
+        ? Math.min(baseCap, 25)
+        : baseCap);
 
   // 诊断与处方按需生成/刷新（CL-02 step1-2）
   useEffect(() => {
@@ -338,6 +352,16 @@ export default function TodayPage() {
               按目前水平估算，距目标还差约 {diagnosis.gapToTarget} 分。
             </p>
           ) : null}
+        </Card>
+      ) : null}
+
+      {/* F0116：把昨天登记的未完成原因导致的计划变化说清楚 */}
+      {reasonPlan && todayMinutesOverride == null ? (
+        <Card className="mt-lg" tone="faint" padding="dense">
+          <p className="text-label-md text-muted">已按你昨天的反馈调整</p>
+          <p className="mt-xs text-body-sm text-body">
+            原因「{yesterdayAdjustment?.reason}」→ {reasonPlan.change}（今日预算 {budget} 分钟）
+          </p>
         </Card>
       ) : null}
 

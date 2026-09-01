@@ -6,11 +6,12 @@
  * 处理中 → 成功/失败）；到期/续费文案说明已获得价值（CL-09 step4）。
  * MVP 不接真实支付渠道（spec-gaps GAP-5）。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { useProfileStore } from "@/lib/profile/store";
+import { getToken } from "@/lib/auth/client";
 
 const BENEFITS: Array<{ name: string; free: string; pro: string }> = [
   { name: "AI 提分诊断", free: "每周 3 次", pro: "不限次数" },
@@ -23,6 +24,18 @@ export default function MembershipPage() {
   const { membership, purchaseMembership, restorePurchase, requestRefund } = useProfileStore();
   const [order, setOrder] = useState<"idle" | "处理中" | "成功" | "失败">("idle");
   const [plan, setPlan] = useState<"pro-monthly" | "pro-yearly">("pro-monthly");
+  // F0339：客服发放的补偿必须在用户侧可见
+  const [bonus, setBonus] = useState<{ bonusDays: number; bonusQuota: number; records: Array<{ kind: string; amount: number; reason: string; at: string }> }>({ bonusDays: 0, bonusQuota: 0, records: [] });
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    void fetch("/api/membership/entitlements", { headers: { authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((d: { ok: boolean; bonusDays?: number; bonusQuota?: number; records?: typeof bonus.records }) => {
+        if (d.ok) setBonus({ bonusDays: d.bonusDays ?? 0, bonusQuota: d.bonusQuota ?? 0, records: d.records ?? [] });
+      })
+      .catch(() => undefined);
+  }, []);
 
   const pay = (): void => {
     setOrder("处理中");
@@ -57,6 +70,22 @@ export default function MembershipPage() {
           AI / 批改额度：{membership.plan === "free" ? `${Math.max(0, membership.aiQuota - membership.usedAi)}/${membership.aiQuota}` : "不限"}
           {membership.expiresAt ? ` · 权益至 ${membership.expiresAt.slice(0, 10)}` : ""}
         </p>
+        {/* F0339：客服补偿已实际发放，用户可见并可核对原因 */}
+        {bonus.bonusDays > 0 || bonus.bonusQuota > 0 ? (
+          <div className="mt-md rounded-sm border border-success-soft bg-success-soft/40 p-md">
+            <p className="text-caption text-ink">
+              客服补偿已到账：
+              {bonus.bonusDays > 0 ? `会员时长 +${bonus.bonusDays} 天` : ""}
+              {bonus.bonusDays > 0 && bonus.bonusQuota > 0 ? " · " : ""}
+              {bonus.bonusQuota > 0 ? `AI 额度 +${bonus.bonusQuota} 次` : ""}
+            </p>
+            <ul className="mt-xs space-y-xxs text-micro text-muted">
+              {bonus.records.slice(0, 3).map((record, index) => (
+                <li key={index}>{record.at.slice(0, 10)} · {record.kind} +{record.amount} · {record.reason}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
       </Card>
 
       {/* F0312 订单结果三态（顶层呈现，不随套餐区块卸载） */}

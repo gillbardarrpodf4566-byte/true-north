@@ -23,10 +23,21 @@ export default function MessagesPage() {
   const [filter, setFilter] = useState<"全部" | "学习" | "系统">("全部");
   // F0357：后台消息模板参与文案渲染，未配置时用内置文案
   const [templates, setTemplates] = useState<Array<{ kind: string; template: string }>>([]);
+  // F0316：系统消息的真实数据源——已发布公告与后台维护的考试节点
+  const [notices, setNotices] = useState<Array<{ id: string; title: string; body: string }>>([]);
+  const [examNodes, setExamNodes] = useState<Array<{ id: number; exam_name: string; kind: string; date: string }>>([]);
   useEffect(() => {
     void fetch("/api/operations/public")
       .then((r) => r.json())
-      .then((d: { ok: boolean; templates?: typeof templates }) => setTemplates(d.ok ? d.templates ?? [] : []))
+      .then((d: { ok: boolean; templates?: Array<{ kind: string; template: string }>; notices?: Array<{ id: string; title: string; body: string }> }) => {
+        if (!d.ok) return;
+        setTemplates(d.templates ?? []);
+        setNotices(d.notices ?? []);
+      })
+      .catch(() => undefined);
+    void fetch("/api/admin/exam-nodes")
+      .then((r) => r.json())
+      .then((d: { ok: boolean; rows?: Array<{ id: number; exam_name: string; kind: string; date: string }> }) => setExamNodes(d.ok ? d.rows ?? [] : []))
       .catch(() => undefined);
   }, []);
 
@@ -80,7 +91,18 @@ export default function MessagesPage() {
         at: new Date().toISOString(),
       });
     }
-    // F0316 系统消息
+    // F0316 系统消息：来自后台已发布公告 + 真实考试节点，而不是单条静态文案
+    for (const notice of notices) {
+      out.push({ id: `notice-${notice.id}`, category: "系统", title: notice.title, body: notice.body, at: new Date().toISOString() });
+    }
+    if (examNodes.length > 0) {
+      const upcoming = buildExamNodeNotifications(examNodes);
+      for (const node of upcoming) {
+        if (shouldNotify(prefs, "考试节点").allowed) {
+          out.push({ id: node.id, category: "系统", title: node.title, body: node.body, at: node.at });
+        }
+      }
+    }
     out.push({
       id: "m-sys-1",
       category: "系统",
@@ -139,7 +161,7 @@ export default function MessagesPage() {
       out.push({ id: progress.id, category: "学习", title: progress.title, body: progress.body, at: progress.at });
     }
     return out.sort((a, b) => b.at.localeCompare(a.at));
-  }, [taskResults.length, imports, weeklyReview, notifications, notificationState.ignoredStreak, attemptRecords, profile.goal, membership.expiresAt, templates]);
+  }, [taskResults.length, imports, weeklyReview, notifications, notificationState.ignoredStreak, attemptRecords, profile.goal, membership.expiresAt, templates, notices, examNodes]);
 
   const visible = messages.filter((m) => !notificationState.dismissed.includes(m.id) && (filter === "全部" || m.category === filter));
 

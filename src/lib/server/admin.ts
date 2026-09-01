@@ -253,10 +253,39 @@ export function setUserAdminState(userId: number, status: "正常" | "封禁" | 
   audit(staff, `用户 #${userId} 状态 → ${status}${note ? `（${note}）` : ""}${status === "封禁" ? "；已撤销全部会话" : ""}`);
 }
 
+/**
+ * F0339 人工补偿：除记录台账外，必须真实累计到用户权益，
+ * 否则用户侧看不到任何变化，补偿等于没发。
+ */
 export function addCompensation(userId: number, kind: "时长" | "额度", amount: number, reason: string, staff: StaffRow): void {
-  getDb().prepare("INSERT INTO user_compensations (user_id, kind, amount, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(userId, kind, amount, reason, staff.username, new Date().toISOString());
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare("INSERT INTO user_compensations (user_id, kind, amount, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(userId, kind, amount, reason, staff.username, now);
+    db.prepare(
+      `INSERT INTO user_entitlements (user_id, bonus_days, bonus_quota, updated_at)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET
+         bonus_days = bonus_days + excluded.bonus_days,
+         bonus_quota = bonus_quota + excluded.bonus_quota,
+         updated_at = excluded.updated_at`,
+    ).run(userId, kind === "时长" ? amount : 0, kind === "额度" ? amount : 0, now);
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
   audit(staff, `用户 #${userId} 补偿${kind} ${amount}${kind === "时长" ? "天" : "次"}（${reason}）`);
+}
+
+/** 用户侧读取已发放的补偿权益（F0339）。 */
+export function userEntitlements(userId: number): { bonusDays: number; bonusQuota: number } {
+  const row = getDb()
+    .prepare("SELECT bonus_days, bonus_quota FROM user_entitlements WHERE user_id = ?")
+    .get(userId) as { bonus_days: number; bonus_quota: number } | undefined;
+  return { bonusDays: row?.bonus_days ?? 0, bonusQuota: row?.bonus_quota ?? 0 };
 }
 
 export function listCompensations(userId: number): Array<{ kind: string; amount: number; reason: string; created_by: string; created_at: string }> {

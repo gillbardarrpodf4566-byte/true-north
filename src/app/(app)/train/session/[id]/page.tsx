@@ -18,7 +18,7 @@ import { buildTrainingSet, questionById } from "@/lib/questions/seed";
 import { recordRetest, suggestErrorCause } from "@/lib/errorcause/engine";
 import { computeBaseline } from "@/lib/baseline/compute";
 import { filterDisabled, fetchDisabledQuestions } from "@/lib/questions/useDisabled";
-import { autoAssemble, buildWrongRetestSet, strategyFeedback, nextStepSuggestion, questionVersionHistory } from "@/lib/training/advanced";
+import { autoAssemble, buildWrongRetestSet, strategyFeedback, nextStepSuggestion, questionVersionHistory, neighborQuestions } from "@/lib/training/advanced";
 import { adaptiveDifficulty, lightenTask, replacementFor, scaffoldLevel } from "@/lib/plan/adaptive";
 import { computeAbilityDimensions } from "@/lib/ability/dimensions";
 import { duration, easing } from "@/design/tokens";
@@ -742,6 +742,22 @@ export default function SessionPage() {
               return <><p className="text-label-md text-muted">策略反馈</p><p className="mt-xs text-body-sm text-body">{feedback.conclusion}</p><p className="mt-xs text-caption text-muted">{feedback.evidence}</p><p className="mt-xs text-body-sm text-primary">下一步：{feedback.next}</p><p className="mt-xs text-micro text-muted-soft">答案修改 {answerChanges[q.id] ?? 0} 次 · 题目版本 {questionVersionHistory(q)[0]?.version ?? "seed-v1"}</p></>;
             })()}
           </Card>
+          {/* F0140 错后近邻题：答错时立刻给同知识点的不同题干，作为下一步练习目标 */}
+          {!isCorrect ? (() => {
+            const neighbors = neighborQuestions(q, 2);
+            if (neighbors.length === 0) return null;
+            return (
+              <Card className="mt-md" padding="dense">
+                <p className="text-label-md text-muted">同知识点近邻题（F0140）</p>
+                {neighbors.map((neighbor) => (
+                  <p key={neighbor.id} className="mt-xs text-caption text-body">· {neighbor.stem.split("\n")[0]?.slice(0, 48)}…</p>
+                ))}
+                <Link href={`/train/session/retest-${encodeURIComponent(q.id)}`} className="mt-sm inline-block text-label-md text-primary">
+                  用这些题复测「{q.knowledgePoint}」→
+                </Link>
+              </Card>
+            );
+          })() : null}
           <Button className="mt-lg" fullWidth onClick={moveToNext}>{index + 1 >= questions.length ? "查看训练总结" : "下一题"}</Button>
         </div>
       ) : (

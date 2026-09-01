@@ -13,7 +13,8 @@ import { EmptyState } from "@/components/ui/StateViews";
 import { TrendLine } from "@/components/charts/TrendLine";
 import { useProfileStore } from "@/lib/profile/store";
 import { MODULES, TOTAL_FULL_SCORE } from "@/lib/profile/types";
-import { aggregateErrorCauses, forecastScore } from "@/lib/insights/v1";
+import { aggregateErrorCauses, errorCauseTrend, executionAndTimePressure, forecastScore } from "@/lib/insights/v1";
+import { milestoneCheck } from "@/lib/plan/adaptive";
 import { computeAbilityDimensions } from "@/lib/ability/dimensions";
 import { questionById } from "@/lib/questions/seed";
 
@@ -322,6 +323,59 @@ export default function ProgressPage() {
             </p>
           </Card>
         ) : null}
+
+        {/* F0279 错因趋势：按周看错因构成变化，而不是只有当前排名 */}
+        {(() => {
+          const trend = errorCauseTrend(wrongBook);
+          const weeks = [...new Set(trend.map((row) => row.week))].sort();
+          if (weeks.length < 2) return null;
+          return (
+            <Card>
+              <p className="text-label-md text-muted">错因趋势（F0279）</p>
+              <ul className="mt-sm space-y-xs text-caption text-body">
+                {weeks.slice(-4).map((week) => (
+                  <li key={week}>
+                    {week}：{trend.filter((row) => row.week === week).map((row) => `${row.cause} ${row.count}`).join(" · ")}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          );
+        })()}
+
+        {/* F0155 时间压力与执行错误：从作答轨迹识别，给出证据 */}
+        {(() => {
+          const pressure = executionAndTimePressure(attemptRecords);
+          if (pressure.execution === 0 && pressure.timePressure === 0) return null;
+          return (
+            <Card>
+              <p className="text-label-md text-muted">执行与时间压力（F0155）</p>
+              <p className="mt-xs text-body-sm text-body">
+                执行/计算类 {pressure.execution} 次 · 疑似仓促作答 {pressure.timePressure} 次
+              </p>
+              <ul className="mt-sm space-y-xxs text-caption text-muted">
+                {pressure.evidence.slice(0, 3).map((line, index) => <li key={index}>· {line}</li>)}
+              </ul>
+            </Card>
+          );
+        })()}
+
+        {/* F0123 里程碑复盘：到达阶段节点才提示，附可执行议程 */}
+        {(() => {
+          if (!profile.conditions?.stage || !profile.goal?.examDate) return null;
+          const milestone = milestoneCheck(profile.conditions.stage, profile.goal.examDate, baseline?.confidence ?? null);
+          if (!milestone.due) return null;
+          return (
+            <Card tone="faint">
+              <p className="text-label-md text-primary">里程碑复盘（F0123）</p>
+              <p className="mt-xs text-body-sm text-ink">{milestone.title}</p>
+              <ul className="mt-sm space-y-xxs text-caption text-body">
+                {milestone.agenda.map((item) => <li key={item}>· {item}</li>)}
+              </ul>
+              <Link href="/progress/weekly" className="mt-sm inline-block text-label-md text-primary">去做复盘 →</Link>
+            </Card>
+          );
+        })()}
 
         <Card className="text-center">
           <Link href="/progress/weekly" className="text-label-md text-primary">

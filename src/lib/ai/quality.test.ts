@@ -22,6 +22,18 @@ describe("申论评测集与 Rubric Grader（F0374/F0376）", () => {
 });
 
 describe("失败聚类（F0381）", () => {
+  it("提供来源版本时按「类型+模型/Prompt」细分，未提供时保持纯类型", () => {
+    const clusters = clusterFailures([
+      { category: "解析错误", text: "a", modelVersion: "m1", promptVersion: "p1" },
+      { category: "解析错误", text: "b", modelVersion: "m1", promptVersion: "p1" },
+      { category: "解析错误", text: "c", modelVersion: "m2", promptVersion: "p1" },
+      { category: "解析错误", text: "d" },
+    ]);
+    expect(clusters.find((c) => c.cluster === "解析错误 · m1/p1")?.count).toBe(2);
+    expect(clusters.find((c) => c.cluster === "解析错误 · m2/p1")?.count).toBe(1);
+    expect(clusters.find((c) => c.cluster === "解析错误")?.count).toBe(1);
+  });
+
   it("按类聚合计数并排序", () => {
     const c = clusterFailures([
       { category: "解析错误", text: "分数识别成题数" },

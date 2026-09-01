@@ -12,19 +12,24 @@ export default function FeedbackPage() {
   const [text, setText] = useState("");
   const [hasShot, setHasShot] = useState(false);
   const [done, setDone] = useState(false);
+  // F0320：内容纠错必须能指向具体题目，否则工单无法定位也进不了质量闭环
+  const [questionRef, setQuestionRef] = useState("");
 
   const submit = async (): Promise<void> => {
     if (text.trim().length < 5) return;
+    if (type === "内容纠错" && questionRef.trim() === "") return;
+    const target = type === "内容纠错" ? `session:${questionRef.trim()}` : undefined;
     const res = await fetch("/api/feedback", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ type, text: text.trim(), hasScreenshot: hasShot }),
+      body: JSON.stringify({ type, text: text.trim(), hasScreenshot: hasShot, target }),
     });
     if (res.ok) {
       addFeedback({ type, text: text.trim(), hasScreenshot: hasShot });
       setDone(true);
       setText("");
       setHasShot(false);
+      setQuestionRef("");
     } else {
       setDone(false);
     }
@@ -56,6 +61,19 @@ export default function FeedbackPage() {
             </button>
           ))}
         </div>
+        {/* F0320：内容纠错需指明题目，工单才能定位并进入质量闭环 */}
+        {type === "内容纠错" ? (
+          <label className="mt-lg block">
+            <span className="text-label-md text-muted">题目编号（在题干下方可见，如 fa-0）</span>
+            <input
+              value={questionRef}
+              onChange={(e) => setQuestionRef(e.target.value.trim())}
+              aria-label="题目编号"
+              placeholder="必填，用于定位题目与解析"
+              className="mt-xs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink focus:border-primary focus:outline-none"
+            />
+          </label>
+        ) : null}
         <label className="mt-lg block">
           <span className="text-label-md text-muted">具体描述（做什么操作时发生了什么）</span>
           <textarea
@@ -75,7 +93,7 @@ export default function FeedbackPage() {
           />
           附上截图（可选）
         </label>
-        <Button className="mt-lg" fullWidth disabled={text.trim().length < 5} onClick={() => void submit()}>
+        <Button className="mt-lg" fullWidth disabled={text.trim().length < 5 || (type === "内容纠错" && questionRef === "")} onClick={() => void submit()}>
           提交反馈
         </Button>
         {done ? (

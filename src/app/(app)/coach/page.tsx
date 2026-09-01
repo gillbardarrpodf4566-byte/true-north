@@ -15,6 +15,7 @@ import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { useProfileStore } from "@/lib/profile/store";
 import { computeAbilityDimensions } from "@/lib/ability/dimensions";
+import { MODULES } from "@/lib/profile/types";
 import { duration } from "@/design/tokens";
 
 interface CoachReply {
@@ -32,6 +33,13 @@ interface Turn {
   text?: string;
   reply?: CoachReply;
   context?: string;
+}
+
+/** F0170：从提问中识别讨论的模块，练习入口指向该模块而不是固定的混合练。 */
+function practiceHrefFor(question: string, data: CoachData): string {
+  const mentioned = MODULES.find((module) => question.includes(module));
+  const moduleId = mentioned ?? data.topOpportunity?.moduleId ?? null;
+  return moduleId ? `/train/session/free-${encodeURIComponent(moduleId)}` : "/train/session/auto-混合";
 }
 
 function buildReply(q: string, data: CoachData): CoachReply {
@@ -102,7 +110,7 @@ function buildReply(q: string, data: CoachData): CoachReply {
     advice: "涉及具体数据的问题，我会带上你的训练证据再回答。",
     actions: [
       { label: "看今日焦点", href: "/today" },
-      { label: "生成相似练习", href: "/train/session/auto-混合" },
+      { label: "生成相似练习", href: practiceHrefFor(q, data) },
       { label: "看提分诊断", href: "/diagnosis" },
     ],
     uncertainty: "这个问题我还没有足够的上下文。",

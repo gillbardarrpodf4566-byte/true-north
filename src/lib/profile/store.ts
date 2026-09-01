@@ -187,6 +187,11 @@ interface ProfileState {
   watchlist: string[];
   /** F0226 申论专项处方：用户确认后进入今日可执行任务 */
   essayPlanItems: Array<{ id: string; title: string; minutes: number; successCriteria: string; addedAt: string; doneAt: string | null }>;
+  /** F0196/F0197 下场模考的模块顺序预算与待验证策略实验 */
+  mockPlan: {
+    budgets: Array<{ moduleId: string; suggestedOrder: number; suggestedMinutes: number }>;
+    experiment: { hypothesis: string; metric: string; recordedAt: string; baselineScore: number | null } | null;
+  } | null;
   /** 通知偏好（F0290/F0324/F0294） */
   notifications: { taskReminder: boolean; diagnosisReady: boolean; examDeadline: boolean; review: boolean; progress: boolean; window: string; proactive: boolean };
   /** F0293 连续忽略降频、F0316/0317 消息已读状态 */
@@ -241,6 +246,7 @@ interface ProfileState {
   postponeTask: (date: string, taskId: string) => void;
   addTaskAdjustment: (a: { taskId: string; reason: "时间不足" | "太难" | "计划不合理" | "其他"; change: string }) => void;
   addEssayPlanItem: (item: { title: string; minutes: number; successCriteria: string }) => void;
+  setMockPlan: (plan: NonNullable<ProfileState["mockPlan"]>) => void;
   completeEssayPlanItem: (id: string) => void;
   toggleWatchlist: (questionId: string) => void;
   setNotifications: (n: Partial<ProfileState["notifications"]>) => void;
@@ -331,6 +337,7 @@ export const useProfileStore = create<ProfileState>()(
       taskAdjustments: [],
       watchlist: [],
       essayPlanItems: [],
+      mockPlan: null,
       notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, review: true, progress: true, window: "20:00", proactive: true },
       notificationState: { ignoredStreak: 0, dismissed: [] },
       learningPreferences: { resources: [], mode: "混合", content: "文字", coachStyle: "温和", proactive: true },
@@ -474,6 +481,7 @@ export const useProfileStore = create<ProfileState>()(
           return { postponedTasks: { ...s.postponedTasks, [date]: [...list, taskId] } };
         }),
       addTaskAdjustment: (a) => set((s) => ({ taskAdjustments: [...s.taskAdjustments, { ...a, at: new Date().toISOString() }] })),
+      setMockPlan: (mockPlan) => set({ mockPlan }),
       addEssayPlanItem: (item) =>
         set((s) => {
           // 同标题只保留一条未完成项，重复点击不产生重复任务。
@@ -540,6 +548,7 @@ export const useProfileStore = create<ProfileState>()(
           taskAdjustments: [],
           watchlist: [],
           essayPlanItems: [],
+          mockPlan: null,
           notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, review: true, progress: true, window: "20:00", proactive: true },
       notificationState: { ignoredStreak: 0, dismissed: [] },
           learningPreferences: { resources: [], mode: "混合", content: "文字", coachStyle: "温和", proactive: true },
@@ -576,6 +585,7 @@ export const useProfileStore = create<ProfileState>()(
           watchlist: old.watchlist ?? current.watchlist,
           weeklyReviewHistory: old.weeklyReviewHistory ?? current.weeklyReviewHistory,
           essayPlanItems: old.essayPlanItems ?? current.essayPlanItems,
+          mockPlan: old.mockPlan ?? current.mockPlan,
         };
       },
     },

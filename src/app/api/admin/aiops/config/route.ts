@@ -18,7 +18,13 @@ export async function GET(req: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: false, message: authResult.forbidden ? "无权限" : "未登录" }, { status: authResult.forbidden ? 403 : 401 });
   }
   const candidates = listAiFeedbackCandidates();
-  const clustered = candidates.map((candidate) => ({ category: candidate.category, text: candidate.sanitizedExcerpt }));
+  // F0381：把已验证的来源版本一并交给聚类，未验证的保持为 null 不臆造
+  const clustered = candidates.map((candidate) => ({
+    category: candidate.category,
+    text: candidate.sanitizedExcerpt,
+    modelVersion: candidate.modelVersion,
+    promptVersion: candidate.promptVersion,
+  }));
   return NextResponse.json({
     ok: true,
     routing: getAiConfig("routing"),
