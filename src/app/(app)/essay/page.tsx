@@ -10,8 +10,9 @@ import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore } from "@/lib/profile/store";
-import { ESSAY_SEED } from "@/lib/essay/bank";
 import { weakestDimension } from "@/lib/essay/grade";
+import { usePublishedEssays } from "@/lib/essay/usePublished";
+import { useFeatureFlag } from "@/lib/ai/useFlags";
 import type { EssayType } from "@/lib/essay/types";
 
 const TYPES: EssayType[] = ["概括", "对策", "公文", "大作文"];
@@ -20,8 +21,18 @@ export default function EssayHubPage() {
   const essaySubmissions = useProfileStore((s) => s.essaySubmissions);
   const essayGrades = useProfileStore((s) => s.essayGrades);
   const essayAbilities = useProfileStore((s) => s.essayAbilities);
+  const { enabled: essayEnabled, loading: flagsLoading } = useFeatureFlag("essay_coach");
+  const { essays } = usePublishedEssays();
 
   const gradesList = useMemo(() => Object.values(essayGrades), [essayGrades]);
+  if (!flagsLoading && !essayEnabled) {
+    return (
+      <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
+        <h1 className="text-headline-xl text-ink">申论教练</h1>
+        <div className="mt-xl"><EmptyState why="申论教练正在灰度开放。" action="当前账号暂未进入试用分组；不会影响已有作答记录。" /></div>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
@@ -34,7 +45,7 @@ export default function EssayHubPage() {
       {essayAbilities.map((a) => {
         const history: NonNullable<(typeof essayGrades)[string]>[] = [];
         for (const s of essaySubmissions) {
-          const qMeta = ESSAY_SEED.find((x) => x.id === s.questionId);
+          const qMeta = essays.find((x) => x.question.id === s.questionId)?.question;
           const g = essayGrades[s.id];
           if (qMeta?.type === a.type && g) history.push(g);
         }
@@ -56,7 +67,7 @@ export default function EssayHubPage() {
         <section key={t} className="mt-xl">
           <h2 className="text-title-lg text-ink">{t}</h2>
           <ul className="mt-md space-y-md">
-            {ESSAY_SEED.filter((q) => q.type === t).map((q) => {
+            {essays.filter((item) => item.question.type === t).map(({ question: q, revision }) => {
               const attempts = essaySubmissions.filter((s) => s.questionId === q.id).length;
               return (
                 <li key={q.id}>
@@ -69,7 +80,7 @@ export default function EssayHubPage() {
                       {attempts > 0 ? <Chip tone="insight">{attempts} 次</Chip> : null}
                     </div>
                     <p className="mt-xs text-caption text-muted">
-                      {q.year} {q.region} {q.exam} · {q.wordLimit} 字
+                      {q.year} {q.region} {q.exam} · {q.wordLimit} 字{revision > 0 ? ` · 内容版本 r${revision}` : ""}
                     </p>
                   </Link>
                 </li>

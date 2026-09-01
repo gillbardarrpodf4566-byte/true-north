@@ -87,6 +87,15 @@ export default function AdminPage() {
           </p>
         </div>
         <div className="flex items-center gap-md">
+          <Link href="/admin/content" className="text-label-md text-primary">
+            申论内容 ›
+          </Link>
+          <Link href="/admin/positions" className="text-label-md text-primary">
+            职位库 ›
+          </Link>
+          <Link href="/admin/rules" className="text-label-md text-primary">
+            资格规则 ›
+          </Link>
           <Link href="/aiops" className="text-label-md text-primary">
             AI 运营台 ›
           </Link>

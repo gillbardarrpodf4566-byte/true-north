@@ -22,12 +22,12 @@ test("F0003/F0013/F0014 登录：发送→回显→错码原因→正确登录�
 
   // F0014：错误验证码 → 具体原因与剩余次数，不是笼统报错
   await page.getByLabel("验证码").fill("000000");
-  await page.getByRole("button", { name: "登录" }).click();
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await expect(page.getByText(/验证码不正确，还可尝试 \d+ 次/)).toBeVisible();
 
   // 正确验证码 → 登录成功 → 启动页路由到新用户引导
   await page.getByLabel("验证码").fill(code);
-  await page.getByRole("button", { name: "登录" }).click();
+  await page.getByRole("button", { name: "登录", exact: true }).click();
   await page.waitForURL(/\/(today|onboarding)(\?|$)/);
 });
 

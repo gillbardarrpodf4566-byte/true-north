@@ -1,13 +1,22 @@
 /**
  * 短信验证码服务（F0003 登录 / F0013 重发保护 / F0014 失败原因与恢复路径）。
  *
- * MVP 为 **mock 短信通道**：验证码不经过真实服务商，直接随响应返回（mock.code），
- * 生产接入服务商后删除 mock 字段即可——限流/冷却/过期/锁定逻辑均为真实实现：
+ * 限流/冷却/过期/锁定均为真实实现：
  * - 重发冷却 60s（F0013）
  * - 每手机每小时最多 5 条
  * - 有效期 5 分钟；验证错误 5 次锁定 15 分钟（F0014）
+ *
+ * 安全边界：验证码只有在显式开启 mock 通道（JIANAN_ALLOW_MOCK_SMS=1，用于本地/E2E）时才回显。
+ * 未配置真实短信服务商且未开启 mock 时直接拒绝发送，避免任何人凭回显验证码登录他人手机号。
  */
 import { getDb } from "./db";
+
+export type SmsChannel = "mock" | "provider" | "unavailable";
+
+export function smsChannel(): SmsChannel {
+  if (process.env.JIANAN_SMS_PROVIDER_ENDPOINT) return "provider";
+  return process.env.JIANAN_ALLOW_MOCK_SMS === "1" ? "mock" : "unavailable";
+}
 
 const RESEND_COOLDOWN_S = 60;
 const HOURLY_LIMIT = 5;
@@ -17,13 +26,17 @@ const LOCK_MS = 15 * 60_000;
 
 export interface SendResult {
   ok: boolean;
-  reason?: "cooldown" | "rate_limited";
+  reason?: "cooldown" | "rate_limited" | "channel_unavailable";
   retryAfter: number;
-  /** mock 短信通道：真实部署删除此字段，验证码由服务商下发 */
+  /** 仅 mock 通道回显；provider 通道与未配置通道都不返回验证码。 */
   mock?: { code: string };
 }
 
 export function sendSmsCode(phone: string, purpose: "login"): SendResult {
+  const channel = smsChannel();
+  if (channel === "unavailable") {
+    return { ok: false, reason: "channel_unavailable", retryAfter: 0 };
+  }
   const db = getDb();
   const now = Date.now();
   const rows = db
@@ -57,7 +70,10 @@ export function sendSmsCode(phone: string, purpose: "login"): SendResult {
      VALUES (?, ?, ?, ?, ?)`,
   ).run(phone, purpose, code, new Date(now).toISOString(), new Date(now + CODE_TTL_MS).toISOString());
 
-  return { ok: true, retryAfter: RESEND_COOLDOWN_S, mock: { code } };
+  // provider 通道的验证码只经服务商下发，绝不回传给调用方。
+  return channel === "mock"
+    ? { ok: true, retryAfter: RESEND_COOLDOWN_S, mock: { code } }
+    : { ok: true, retryAfter: RESEND_COOLDOWN_S };
 }
 
 export type VerifyFailure = "expired" | "wrong" | "locked" | "no_code";

@@ -22,6 +22,9 @@ import { PrescriptionCard } from "@/components/prescription/PrescriptionCard";
 import { useProfileStore } from "@/lib/profile/store";
 import { diagnose } from "@/lib/diagnosis/engine";
 import { buildPrescription, todayBudget } from "@/lib/prescription/engine";
+import { checkGoalConflicts } from "@/lib/profile/conflicts";
+import { computeAbilityDimensions } from "@/lib/ability/dimensions";
+import { enhancePrescription, lightenTask, replacementFor } from "@/lib/plan/adaptive";
 
 const TIME_CHOICES = [20, 40, 60, 90];
 
@@ -33,6 +36,8 @@ export default function TodayPage() {
     diagnosis,
     prescription,
     taskResults,
+    attemptRecords,
+    privacy,
     todayMinutesOverride,
     setDiagnosis,
     setPrescription,
@@ -41,10 +46,14 @@ export default function TodayPage() {
     markRevealed,
     postponedTasks,
     postponeTask,
+    addTaskAdjustment,
   } = useProfileStore();
+  const [adjustTask, setAdjustTask] = useState<string | null>(null);
 
   const today = isoDate(new Date());
   const [showTimeSheet, setShowTimeSheet] = useState(false);
+  const [replacementTask, setReplacementTask] = useState<string | null>(null);
+  const [lightTask, setLightTask] = useState<string | null>(null);
 
   const defaultBudget = todayBudget(
     profile.conditions?.weekdayMinutes ?? 60,
@@ -72,9 +81,10 @@ export default function TodayPage() {
         prescription && prescription.budgetMinutes !== budget
           ? `你今天可用时间改为 ${budget} 分钟，任务量已按此重排。`
           : null;
-      setPrescription(buildPrescription(diagnosis, budget, new Date(), reason));
+      const ability = computeAbilityDimensions(attemptRecords);
+      setPrescription(enhancePrescription(buildPrescription(diagnosis, budget, new Date(), reason), ability));
     }
-  }, [diagnosis, prescription, budget, today, setPrescription]);
+  }, [diagnosis, prescription, budget, today, setPrescription, attemptRecords]);
 
   const daysLeft = useMemo(() => {
     if (!profile.goal?.examDate) return null;
@@ -102,7 +112,20 @@ export default function TodayPage() {
 
   const firstTask = prescription?.tasks[0];
   const resultFor = (id: string) => taskResults.find((r) => r.taskId === id);
-  const top = diagnosis?.opportunities[0];
+  // F0329：关闭个性化后不再以行为轨迹排序今日焦点；只保留用户明确目标和基础计划。
+  const top = privacy.personalization ? diagnosis?.opportunities[0] : null;
+  const focusConclusion = privacy.personalization
+    ? diagnosis?.headline ?? "正在读取你的基线…"
+    : "个性化推荐已关闭。今天按你明确设置的基础计划推进即可。";
+  const goalConflicts = profile.goal && profile.conditions
+    ? checkGoalConflicts({
+        examDate: profile.goal.examDate,
+        targetTotal: profile.goal.targetTotal,
+        weekdayMinutes: profile.conditions.weekdayMinutes,
+        weekendMinutes: profile.conditions.weekendMinutes,
+        today: new Date(),
+      })
+    : [];
   // F0117：延后的任务今天不再显示
   const postponedToday = postponedTasks[today] ?? [];
   const visibleTasks = (prescription?.tasks ?? []).filter(
@@ -117,7 +140,7 @@ export default function TodayPage() {
       <div className="mt-lg">
         <HorizonFocus
           indicatorPosition={indicatorFor(diagnosis?.confidence)}
-          conclusion={diagnosis?.headline ?? "正在读取你的基线…"}
+          conclusion={focusConclusion}
           evidenceSummary={
             top
               ? `预计可提约 ${top.estimatedGain} 分；${baseline.dataNote}`
@@ -206,14 +229,53 @@ export default function TodayPage() {
                 href={`/train/session/${t.id}`}
               />
               {/* F0117 延后任务：一键移至次日并重排 */}
-              {t.priority !== "必须" && !resultFor(t.id) ? (
-                <button
-                  type="button"
-                  onClick={() => postponeTask(today, t.id)}
-                  className="mt-xs text-caption text-muted underline-offset-2 hover:underline"
-                >
-                  今天做不完？放到明天
-                </button>
+              {!resultFor(t.id) ? (
+                <div className="mt-xs flex flex-wrap gap-md">
+                  {t.priority !== "必须" ? (
+                    <button
+                      type="button"
+                      onClick={() => postponeTask(today, t.id)}
+                      className="text-caption text-muted underline-offset-2 hover:underline"
+                    >
+                      今天做不完？放到明天
+                    </button>
+                  ) : null}
+                  <button type="button" onClick={() => setAdjustTask(adjustTask === t.id ? null : t.id)} className="text-caption text-primary underline-offset-2 hover:underline">
+                    任务不合适？调整
+                  </button>
+                  <button type="button" onClick={() => setLightTask(lightTask === t.id ? null : t.id)} className="text-caption text-primary underline-offset-2 hover:underline">
+                    生成轻量版
+                  </button>
+                  <button type="button" onClick={() => setReplacementTask(replacementTask === t.id ? null : t.id)} className="text-caption text-primary underline-offset-2 hover:underline">
+                    换一种练法
+                  </button>
+                </div>
+              ) : null}
+              {lightTask === t.id ? (
+                <div className="mt-sm rounded-md bg-surface-soft p-md">
+                  {(() => {
+                    const light = lightenTask(t);
+                    return <><p className="text-caption text-muted">轻量版（F0118）</p><p className="mt-xs text-body-sm text-body">{light.title} · {light.minutes} 分钟 / {light.questionCount} 题</p><p className="mt-xs text-caption text-muted">{light.successCriteria}</p><Link href={`/train/session/${light.id}`} className="mt-sm inline-block text-label-md text-primary">开始轻量版 →</Link></>;
+                  })()}
+                </div>
+              ) : null}
+              {replacementTask === t.id ? (
+                <div className="mt-sm rounded-md bg-surface-soft p-md">
+                  {(() => {
+                    const alt = replacementFor(t, diagnosis);
+                    return alt ? <><p className="text-caption text-muted">替代任务（F0058）</p><p className="mt-xs text-body-sm text-body">{alt.title}</p><p className="mt-xs text-caption text-muted">{alt.why}</p><Link href={`/train/session/${alt.id}`} className="mt-sm inline-block text-label-md text-primary">使用这个替代任务 →</Link></> : <p className="text-caption text-muted">当前没有同模块的等价替代机会，建议先缩短任务。</p>;
+                  })()}
+                </div>
+              ) : null}
+              {adjustTask === t.id ? (
+                <div className="mt-sm rounded-md bg-surface-soft p-md">
+                  <p className="text-caption text-muted">未完成原因（F0116）</p>
+                  <div className="mt-sm flex flex-wrap gap-sm">
+                    {(["时间不足", "太难", "计划不合理", "其他"] as const).map((reason) => (
+                      <button key={reason} type="button" onClick={() => { addTaskAdjustment({ taskId: t.id, reason, change: reason === "时间不足" ? "下次生成轻量版任务" : reason === "太难" ? "下次难度下调一档" : reason === "计划不合理" ? "下次重排并缩短单次时长" : "保持原计划" }); setAdjustTask(null); }} className="rounded-full border border-border bg-surface px-md py-sm text-caption text-body">{reason}</button>
+                    ))}
+                  </div>
+                </div>
               ) : null}
             </div>
           ))}
@@ -237,6 +299,15 @@ export default function TodayPage() {
               按目前水平估算，距目标还差约 {diagnosis.gapToTarget} 分。
             </p>
           ) : null}
+        </Card>
+      ) : null}
+
+      {goalConflicts.length > 0 ? (
+        <Card className="mt-lg">
+          <p className="text-label-md text-warning">目标与时间提醒</p>
+          <ul className="mt-sm space-y-xs text-body-sm text-body">
+            {goalConflicts.map((c) => <li key={c.kind}>· {c.message} <span className="text-primary">（{c.action}）</span></li>)}
+          </ul>
         </Card>
       ) : null}
 

@@ -22,6 +22,13 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const result = sendSmsCode(phone, purpose);
   if (!result.ok) {
+    if (result.reason === "channel_unavailable") {
+      // 没有真实短信服务商且未显式开启 mock 通道时失败关闭，绝不回显验证码。
+      return NextResponse.json(
+        { ok: false, reason: result.reason, message: "短信通道未配置，暂时无法发送验证码。请联系支持。" },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
       {
         ok: false,
@@ -38,7 +45,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   return NextResponse.json({
     ok: true,
     retryAfter: result.retryAfter,
-    // mock 短信通道：验证码直接返回；真实部署由服务商下发，删除此字段
+    // 仅 mock 通道（本地/E2E）返回验证码；provider 通道由服务商下发。
     mock: result.mock,
   });
 }

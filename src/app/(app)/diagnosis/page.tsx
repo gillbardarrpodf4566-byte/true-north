@@ -6,7 +6,7 @@
  * §11.4 Avoid：不用雷达图；用 ranked opportunity list + horizontal contribution bar +
  * confidence 语言。CTA：一键生成处方（F0101）。
  */
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -17,11 +17,15 @@ import { ContributionBars } from "@/components/charts/ContributionBars";
 import { useProfileStore } from "@/lib/profile/store";
 import { diagnose } from "@/lib/diagnosis/engine";
 import { buildPrescription, todayBudget } from "@/lib/prescription/engine";
+import { counterfactualExplanation, diagnosisDelta, impactBand } from "@/lib/insights/v1";
 
 export default function DiagnosisPage() {
   const router = useRouter();
-  const { baseline, profile, diagnosis, setDiagnosis, setPrescription, todayMinutesOverride, aiFeedback, addAiFeedback } =
+  const { baseline, profile, diagnosis, diagnosisHistory, profileCorrections, setDiagnosis, setPrescription, todayMinutesOverride, aiFeedback, addAiFeedback } =
     useProfileStore();
+  const [disagreeOpen, setDisagreeOpen] = useState(false);
+  const [supplement, setSupplement] = useState("");
+  const [supplementSent, setSupplementSent] = useState(false);
 
   // F0081 导入新模考后自动生成诊断候选：基线在但诊断缺失/过期时重算
   useEffect(() => {
@@ -107,6 +111,35 @@ export default function DiagnosisPage() {
             </>
           )}
         </div>
+        {profileCorrections.length > 0 ? <p className="mt-xs text-caption text-muted">已参考你最近的画像说明：「{profileCorrections[profileCorrections.length - 1]!.userSays}」</p> : null}
+        {/* F0099 不认同：选择原因后记录，不能静默覆盖 */}
+        <div className="mt-sm">
+          <button type="button" onClick={() => setDisagreeOpen((v) => !v)} aria-expanded={disagreeOpen} className="text-caption text-muted underline-offset-2 hover:underline">
+            我不认同这个判断
+          </button>
+          {disagreeOpen ? (
+            <div className="mt-sm rounded-md bg-surface-soft p-md">
+              <p className="text-caption text-muted">哪一项不符合？你的反馈会用于校准。</p>
+              <div className="mt-sm flex flex-wrap gap-sm">
+                {["数据不完整", "我更想先练别的", "这个原因不准确", "其他"].map((reason) => (
+                  <button key={reason} type="button" onClick={() => { addAiFeedback({ target: `diagnosis:${diagnosis.generatedAt}`, helpful: false, reported: false, reason }); setDisagreeOpen(false); }} className="rounded-full border border-border bg-surface px-md py-sm text-caption text-body">
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+        {/* F0100 证据不足时追问最少必要信息 */}
+        {diagnosis.provisional ? (
+          <div className="mt-md rounded-md border border-border bg-surface-soft p-md">
+            <p className="text-body-sm text-body">为了减少误判，你最近一次资料分析训练是在哪个时段完成的？</p>
+            <div className="mt-sm flex gap-sm">
+              <input value={supplement} onChange={(e) => setSupplement(e.target.value)} aria-label="补充训练时段" placeholder="如 晚上 21:00" className="h-10 flex-1 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink" />
+              <Button variant="secondary" disabled={!supplement.trim()} onClick={() => { addAiFeedback({ target: `diagnosis-supplement:${diagnosis.generatedAt}`, helpful: null, reported: false, reason: supplement.trim() }); setSupplementSent(true); }}>{supplementSent ? "已记录" : "补充"}</Button>
+            </div>
+          </div>
+        ) : null}
       </header>
 
       {diagnosis.opportunities.length === 0 ? (
@@ -125,6 +158,23 @@ export default function DiagnosisPage() {
               rows={bars}
             />
           </div>
+          {diagnosis.opportunities[0] ? (
+            <Card className="mt-lg" tone="surface">
+              <p className="text-label-md text-muted">预计影响（F0098）</p>
+              <p className="mt-xs text-body-sm text-body">{impactBand(diagnosis.opportunities[0].estimatedGain).text} · 置信 {diagnosis.opportunities[0].confidence}</p>
+              {diagnosis.opportunities.length > 1 ? (
+                <p className="mt-sm text-caption text-muted">
+                  {counterfactualExplanation(diagnosis.opportunities, diagnosis.opportunities[diagnosis.opportunities.length - 1]?.moduleId ?? null)}
+                </p>
+              ) : null}
+            </Card>
+          ) : null}
+          {diagnosisHistory.length >= 2 ? (
+            <Card className="mt-lg" padding="dense">
+              <p className="text-label-md text-muted">诊断版本变化（F0102/F0103）</p>
+              <p className="mt-xs text-body-sm text-body">{diagnosisDelta(diagnosisHistory).text}</p>
+            </Card>
+          ) : null}
 
           <ol className="mt-xl space-y-lg">
             {diagnosis.opportunities.map((op, i) => (

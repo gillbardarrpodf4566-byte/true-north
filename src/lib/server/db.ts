@@ -53,6 +53,14 @@ function open(): DatabaseSync {
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS linked_providers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      provider TEXT NOT NULL,
+      provider_subject TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(provider, provider_subject)
+    );
     CREATE TABLE IF NOT EXISTS user_permissions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER,
@@ -75,6 +83,12 @@ function open(): DatabaseSync {
       staff_id INTEGER NOT NULL REFERENCES staff(id),
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS staff_login_attempts (
+      staff_id INTEGER PRIMARY KEY REFERENCES staff(id),
+      failed_attempts INTEGER NOT NULL DEFAULT 0,
+      window_started_at TEXT NOT NULL,
+      locked_until TEXT
     );
     CREATE TABLE IF NOT EXISTS question_status (
       qid TEXT PRIMARY KEY,
@@ -162,6 +176,100 @@ function open(): DatabaseSync {
       qid TEXT NOT NULL,
       at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS user_admin_state (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id),
+      status TEXT NOT NULL DEFAULT '正常',
+      risk_note TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS user_compensations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      kind TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      reason TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS essay_content_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      bundle_json TEXT NOT NULL,
+      change_reason TEXT NOT NULL,
+      ticket_ref TEXT,
+      supersedes_revision INTEGER,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      published_by TEXT,
+      published_at TEXT,
+      UNIQUE(question_id, revision)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_essay_published
+      ON essay_content_versions(question_id) WHERE status = 'published';
+    CREATE TABLE IF NOT EXISTS qualification_rule_versions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      revision INTEGER NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      rules_json TEXT NOT NULL,
+      change_reason TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      published_by TEXT,
+      published_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_rules_published
+      ON qualification_rule_versions(status) WHERE status = 'published';
+    CREATE TABLE IF NOT EXISTS position_import_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      status TEXT NOT NULL,
+      source_name TEXT NOT NULL,
+      source_file TEXT NOT NULL,
+      source_updated_at TEXT NOT NULL,
+      format TEXT NOT NULL,
+      sheet_name TEXT,
+      mapping_json TEXT NOT NULL,
+      total_rows INTEGER NOT NULL,
+      imported_rows INTEGER NOT NULL,
+      errors_json TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS external_import_batches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_key TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      source_label TEXT NOT NULL,
+      content_digest TEXT NOT NULL,
+      parser_version TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(owner_key, kind, content_digest)
+    );
+    CREATE TABLE IF NOT EXISTS ai_invocations (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER,
+      producer_kind TEXT NOT NULL,
+      feature TEXT NOT NULL,
+      model_version TEXT,
+      prompt_version TEXT,
+      schema_version TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ai_feedback_candidates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticket_id INTEGER,
+      invocation_id TEXT,
+      category TEXT NOT NULL,
+      sanitized_excerpt TEXT NOT NULL,
+      redaction_version TEXT NOT NULL,
+      pii_categories TEXT NOT NULL,
+      provenance_status TEXT NOT NULL,
+      review_status TEXT NOT NULL,
+      promoted INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
   `);
   seedIfEmpty(db);
   globalThis.__jiananDb = db;
@@ -179,32 +287,13 @@ function seedIfEmpty(db: DatabaseSync): void {
     ins.run("13800000001", "追光者", now);
     ins.run("13800000002", "岸上人", now);
     ins.run("13800000003", null, now);
-    // 演示 token：便于接口直连调试（GET /api/auth/me，Bearer demo-token-13800000001）
-    const row = db.prepare("SELECT id FROM users WHERE phone = ?").get("13800000001") as {
-      id: number;
-    };
-    db.prepare(
-      "INSERT INTO auth_tokens (token, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-    ).run("demo-token-13800000001", row.id, now, new Date(Date.now() + 30 * 86_400_000).toISOString());
   }
+  // 旧版本创建过的公开 demo token 必须在每次启动时撤销，不能保留到生产库。
+  db.prepare("DELETE FROM auth_tokens WHERE token = ?").run("demo-token-13800000001");
 
-  // 种子员工（模拟数据）：演示账号密码见 docs/05-实现/spec-gaps.md GAP-10
-  const staffCount = (db.prepare("SELECT COUNT(*) AS n FROM staff").get() as { n: number }).n;
-  if (staffCount === 0) {
-    const ins = db.prepare(
-      "INSERT INTO staff (username, password_hash, salt, role, display_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-    );
-    const now = new Date().toISOString();
-    const mk = (username: string, password: string, role: StaffRole, name: string): void => {
-      const salt = randomBytes(16).toString("hex");
-      ins.run(username, scryptSync(password, salt, 32).toString("hex"), salt, role, name, now);
-    };
-    mk("ops01", "Ops@123456", "operations", "运营小岸");
-    mk("teacher01", "Teach@123456", "teaching", "教研阿岸");
-    mk("support01", "Support@123456", "support", "客服暖岸");
-    mk("aiops01", "Aiops@123456", "aiops", "AI运营零岸");
-    mk("boss", "Boss@123456", "admin", "管理员");
-  }
+  // 员工账号不再内置默认口令：仅当 staff 为空且显式配置了引导账号时创建。
+  // JIANAN_BOOTSTRAP_STAFF_JSON=[{"username":"...","password":"...","role":"admin","displayName":"..."}]
+  bootstrapStaff(db);
 
   const ticketCount = (db.prepare("SELECT COUNT(*) AS n FROM tickets").get() as { n: number }).n;
   if (ticketCount === 0) {
@@ -257,6 +346,10 @@ function seedIfEmpty(db: DatabaseSync): void {
       "system",
       now,
     );
+    ins.run("notices", JSON.stringify([{ id: "n1", title: "本周复盘已上线", body: "看看哪些投入真正有效。", status: "草稿" }]), "system", now);
+    ins.run("message_templates", JSON.stringify([{ id: "t1", kind: "学习", template: "你的{metric}最近有变化。" }]), "system", now);
+    ins.run("feature_flags", JSON.stringify([{ key: "essay_coach", rollout: "all", percent: 100 }, { key: "score_forecast", rollout: "percent", percent: 50 }]), "system", now);
+    ins.run("rubric_calibrations", JSON.stringify([]), "system", now);
   }
 
   // 职位库种子（模拟数据，F0352/F0354：来源文件 + 更新时间）
@@ -308,7 +401,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 2, interviewScore: 131.2, applicants: 96 },
       { year: 2025, recruited: 3, interviewScore: 128.6, applicants: 118 },
     ],
-    source: { name: "2026 国考职位表（官方）", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15" },
+    source: { name: "2026 国考职位表（官方）·演示数据", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15", origin: "simulated" },
   },
   {
     id: "job-002", name: "区统计局统计分析岗", department: "区统计局", region: "佛山市",
@@ -319,7 +412,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 1, interviewScore: 124.5, applicants: 61 },
       { year: 2025, recruited: 1, interviewScore: 126.8, applicants: 74 },
     ],
-    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20" },
+    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-003", name: "街道办综合管理岗", department: "某街道办事处", region: "广州市",
@@ -330,7 +423,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 3, interviewScore: 118.9, applicants: 142 },
       { year: 2025, recruited: 2, interviewScore: 121.4, applicants: 158 },
     ],
-    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20" },
+    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-004", name: "市委办公室文秘岗", department: "市委办公室", region: "武汉市",
@@ -338,7 +431,7 @@ const SEED_POSITIONS_FOR_DB = [
     majorCategories: ["中国语言文学类", "法学类"], politicalRequirement: "中共党员",
     requiresGrassroots: true, freshOnly: false,
     history: [{ year: 2025, recruited: 1, interviewScore: 138.2, applicants: 203 }],
-    source: { name: "2026 选调职位表（官方）", file: "2026-xd-positions.xlsx", updatedAt: "2026-09-01" },
+    source: { name: "2026 选调职位表（官方）·演示数据", file: "2026-xd-positions.xlsx", updatedAt: "2026-08-25", origin: "simulated" },
   },
   {
     id: "job-005", name: "县市场监管局执法岗", department: "县市场监管局", region: "韶关市",
@@ -349,7 +442,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 4, interviewScore: 108.3, applicants: 88 },
       { year: 2025, recruited: 5, interviewScore: 110.1, applicants: 95 },
     ],
-    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30" },
+    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30", origin: "simulated" },
   },
   {
     id: "job-006", name: "市大数据管理局信息岗", department: "市大数据管理局", region: "深圳市",
@@ -360,9 +453,96 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 2, interviewScore: 134.7, applicants: 187 },
       { year: 2025, recruited: 2, interviewScore: 136.1, applicants: 210 },
     ],
-    source: { name: "2026 市考职位表（官方）", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28" },
+    source: { name: "2026 市考职位表（官方）·演示数据", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28", origin: "simulated" },
   },
 ];
+
+export interface BootstrapStaffEntry {
+  username: string;
+  password: string;
+  role: StaffRole;
+  displayName: string;
+}
+
+const STAFF_ROLES: StaffRole[] = ["operations", "teaching", "support", "aiops", "admin"];
+
+/**
+ * 员工账号只能通过带外配置一次性引导，绝不内置默认口令。
+ * 未配置时 staff 表保持为空，后台登录一律失败（失败关闭）。
+ */
+export function parseBootstrapStaff(raw: string | undefined): BootstrapStaffEntry[] {
+  if (!raw || raw.trim() === "") return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("JIANAN_BOOTSTRAP_STAFF_JSON 不是合法 JSON。");
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("JIANAN_BOOTSTRAP_STAFF_JSON 必须是非空数组。");
+  }
+  const entries = parsed.map((item, i) => {
+    const row = item as Partial<BootstrapStaffEntry>;
+    const username = typeof row.username === "string" ? row.username.trim() : "";
+    const password = typeof row.password === "string" ? row.password : "";
+    const displayName = typeof row.displayName === "string" ? row.displayName.trim() : "";
+    if (username === "") throw new Error(`引导员工第 ${i + 1} 条缺少 username。`);
+    if (password.length < 12) throw new Error(`引导员工「${username}」口令至少 12 位。`);
+    if (!row.role || !STAFF_ROLES.includes(row.role)) {
+      throw new Error(`引导员工「${username}」role 必须是 ${STAFF_ROLES.join("/")}。`);
+    }
+    if (displayName === "") throw new Error(`引导员工「${username}」缺少 displayName。`);
+    return { username, password, role: row.role, displayName };
+  });
+  const unique = new Set(entries.map((entry) => entry.username));
+  if (unique.size !== entries.length) throw new Error("引导员工 username 不能重复。");
+  return entries;
+}
+
+/** 历史版本内置过的演示口令：一旦在库中发现同口令账号，视为已泄露并连带 token 一起清除。 */
+const LEAKED_DEMO_STAFF: Array<{ username: string; password: string }> = [
+  { username: "ops01", password: "Ops@123456" },
+  { username: "teacher01", password: "Teach@123456" },
+  { username: "support01", password: "Support@123456" },
+  { username: "aiops01", password: "Aiops@123456" },
+  { username: "boss", password: "Boss@123456" },
+];
+
+function purgeLeakedDemoStaff(db: DatabaseSync): void {
+  for (const leaked of LEAKED_DEMO_STAFF) {
+    const row = db
+      .prepare("SELECT id, password_hash, salt FROM staff WHERE username = ?")
+      .get(leaked.username) as { id: number; password_hash: string; salt: string } | undefined;
+    if (!row) continue;
+    if (scryptSync(leaked.password, row.salt, 32).toString("hex") !== row.password_hash) continue;
+    db.prepare("DELETE FROM staff_tokens WHERE staff_id = ?").run(row.id);
+    db.prepare("DELETE FROM staff_login_attempts WHERE staff_id = ?").run(row.id);
+    db.prepare("DELETE FROM staff WHERE id = ?").run(row.id);
+  }
+}
+
+function bootstrapStaff(db: DatabaseSync): void {
+  purgeLeakedDemoStaff(db);
+  const staffCount = (db.prepare("SELECT COUNT(*) AS n FROM staff").get() as { n: number }).n;
+  if (staffCount > 0) return;
+  const entries = parseBootstrapStaff(process.env.JIANAN_BOOTSTRAP_STAFF_JSON);
+  if (entries.length === 0) return;
+  const insert = db.prepare(
+    "INSERT INTO staff (username, password_hash, salt, role, display_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+  );
+  const now = new Date().toISOString();
+  for (const entry of entries) {
+    const salt = randomBytes(16).toString("hex");
+    insert.run(
+      entry.username,
+      scryptSync(entry.password, salt, 32).toString("hex"),
+      salt,
+      entry.role,
+      entry.displayName,
+      now,
+    );
+  }
+}
 
 export function getDb(): DatabaseSync {
   return open();
@@ -391,7 +571,19 @@ export function createUser(phone: string): UserRow {
   return findUserByPhone(phone)!;
 }
 
+export function isUserBanned(userId: number): boolean {
+  const row = open()
+    .prepare("SELECT status FROM user_admin_state WHERE user_id = ?")
+    .get(userId) as { status: string } | undefined;
+  return row?.status === "封禁";
+}
+
+export function revokeUserTokens(userId: number): void {
+  open().prepare("DELETE FROM auth_tokens WHERE user_id = ?").run(userId);
+}
+
 export function issueToken(userId: number): { token: string; expiresAt: string } {
+  if (isUserBanned(userId)) throw new Error("ACCOUNT_BANNED");
   const token = randomBytes(24).toString("hex");
   const expiresAt = new Date(Date.now() + 30 * 86_400_000).toISOString();
   open()
@@ -407,8 +599,10 @@ export function userFromToken(token: string | null): UserRow | null {
   const row = open()
     .prepare(
       `SELECT u.id, u.phone, u.nickname, u.created_at
-       FROM auth_tokens t JOIN users u ON u.id = t.user_id
-       WHERE t.token = ? AND t.expires_at > ?`,
+       FROM auth_tokens t
+       JOIN users u ON u.id = t.user_id
+       LEFT JOIN user_admin_state uas ON uas.user_id = u.id
+       WHERE t.token = ? AND t.expires_at > ? AND COALESCE(uas.status, '正常') <> '封禁'`,
     )
     .get(token, new Date().toISOString()) as UserRow | undefined;
   return row ?? null;
@@ -416,6 +610,52 @@ export function userFromToken(token: string | null): UserRow | null {
 
 export function revokeToken(token: string): void {
   open().prepare("DELETE FROM auth_tokens WHERE token = ?").run(token);
+}
+
+export type LinkedProvider = "wechat" | "apple";
+
+export function linkProvider(userId: number, provider: LinkedProvider, subject: string): void {
+  open()
+    .prepare(
+      "INSERT INTO linked_providers (user_id, provider, provider_subject, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(provider, provider_subject) DO UPDATE SET user_id = excluded.user_id",
+    )
+    .run(userId, provider, subject, new Date().toISOString());
+}
+
+export function unlinkProvider(userId: number, provider: LinkedProvider): void {
+  open().prepare("DELETE FROM linked_providers WHERE user_id = ? AND provider = ?").run(userId, provider);
+}
+
+export function deleteUserData(userId: number): void {
+  const db = open();
+  db.exec("BEGIN");
+  try {
+    db.prepare("DELETE FROM auth_tokens WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM linked_providers WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_permissions WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM job_favorites WHERE user_key = ?").run(`user:${userId}`);
+    db.prepare("DELETE FROM user_admin_state WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM user_compensations WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+    db.exec("COMMIT");
+  } catch (e) {
+    db.exec("ROLLBACK");
+    throw e;
+  }
+}
+
+export function listLinkedProviders(userId: number): Array<{ provider: LinkedProvider; created_at: string }> {
+  return open()
+    .prepare("SELECT provider, created_at FROM linked_providers WHERE user_id = ? ORDER BY provider")
+    .all(userId) as unknown as Array<{ provider: LinkedProvider; created_at: string }>;
+}
+
+export function userByProvider(provider: LinkedProvider, subject: string): UserRow | null {
+  return (open()
+    .prepare(
+      "SELECT u.id, u.phone, u.nickname, u.created_at FROM linked_providers p JOIN users u ON u.id = p.user_id WHERE p.provider = ? AND p.provider_subject = ?",
+    )
+    .get(provider, subject) as UserRow | undefined) ?? null;
 }
 
 export function recordPermission(
@@ -428,6 +668,18 @@ export function recordPermission(
       "INSERT INTO user_permissions (user_id, type, granted, at) VALUES (?, ?, ?, ?)",
     )
     .run(userId, type, granted ? 1 : 0, new Date().toISOString());
+}
+
+export function saveJobFavorite(userKey: string, qid: string): void {
+  open().prepare("INSERT INTO job_favorites (user_key, qid, at) VALUES (?, ?, ?)").run(userKey, qid, new Date().toISOString());
+}
+
+export function removeJobFavorite(userKey: string, qid: string): void {
+  open().prepare("DELETE FROM job_favorites WHERE user_key = ? AND qid = ?").run(userKey, qid);
+}
+
+export function listJobFavorites(userKey: string): string[] {
+  return (open().prepare("SELECT qid FROM job_favorites WHERE user_key = ? ORDER BY at DESC").all(userKey) as Array<{ qid: string }>).map((x) => x.qid);
 }
 
 export function latestPermission(

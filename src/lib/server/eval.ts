@@ -16,7 +16,7 @@ export interface EvalCaseResult {
 }
 
 export interface EvalOutcome {
-  suite: "parser" | "diagnosis";
+  suite: "parser" | "diagnosis" | "essay";
   results: EvalCaseResult[];
   passRate: number;
   failures: string[];

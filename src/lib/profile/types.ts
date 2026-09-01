@@ -8,6 +8,8 @@ export interface ExamGoal {
   /** F0016 具体批次与地区 */
   examName: string;
   region: string;
+  /** F0019 目标岗位/岗位组（可选） */
+  targetJob?: string;
   /** F0017 考试日期（ISO yyyy-mm-dd） */
   examDate: string;
   /** F0018 目标分数：总分与分模块目标 */
@@ -41,6 +43,8 @@ export interface Agreements {
 
 export interface Profile {
   nickname: string;
+  avatarUrl?: string;
+  region?: string;
   goal: ExamGoal | null;
   conditions: LearningConditions | null;
   agreements: Agreements | null;

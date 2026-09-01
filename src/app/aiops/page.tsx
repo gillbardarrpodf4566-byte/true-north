@@ -16,6 +16,7 @@ const TABS = [
   ["model", "模型"],
   ["prompt", "Prompt"],
   ["eval", "评测"],
+  ["essay", "申论评测"],
   ["monitor", "监控"],
   ["budget", "预算"],
 ] as const;
@@ -51,6 +52,21 @@ export default function AiOpsPage() {
   const [loading, setLoading] = useState(true);
   const [config, setConfig] = useState<AioConfig | null>(null);
   const [evalRuns, setEvalRuns] = useState<EvalRunRow[]>([]);
+  const [feedbackClusters, setFeedbackClusters] = useState<Array<{ cluster: string; count: number; sample: string }>>([]);
+  const [feedbackCandidates, setFeedbackCandidates] = useState<Array<{
+    id: number;
+    category: string;
+    sanitizedExcerpt: string;
+    redactionVersion: string;
+    piiCategories: string[];
+    provenanceStatus: "verified" | "unavailable";
+    reviewStatus: "review_required" | "approved" | "blocked";
+    producerKind: "model" | "rule_engine" | null;
+    feature: string | null;
+    modelVersion: string | null;
+    promptVersion: string | null;
+    schemaVersion: string | null;
+  }>>([]);
   const [running, setRunning] = useState<string | null>(null);
   const [lastOutcome, setLastOutcome] = useState<{
     suite: string;
@@ -62,7 +78,7 @@ export default function AiOpsPage() {
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("eval");
 
   const load = useCallback(async (): Promise<void> => {
-    const d = await adminApi<AioConfig & { evalRuns: EvalRunRow[] }>("/api/admin/aiops/config");
+    const d = await adminApi<AioConfig & { evalRuns: EvalRunRow[]; feedbackClusters?: Array<{ cluster: string; count: number; sample: string }>; feedbackCandidates?: typeof feedbackCandidates }>("/api/admin/aiops/config");
     if (d.ok) {
       setConfig({
         routing: d.routing ?? { parse: "mock-parse-v1", diagnose: "mock-diag-v1", coach: "mock-coach-v1" },
@@ -71,6 +87,8 @@ export default function AiOpsPage() {
         schema_versions: d.schema_versions ?? [],
       });
       setEvalRuns(d.evalRuns ?? []);
+      setFeedbackClusters(d.feedbackClusters ?? []);
+      setFeedbackCandidates(d.feedbackCandidates ?? []);
     }
   }, []);
 
@@ -97,7 +115,7 @@ export default function AiOpsPage() {
   );
 
   const runEval = useCallback(
-    async (suite: "parser" | "diagnosis"): Promise<void> => {
+    async (suite: "parser" | "diagnosis" | "essay"): Promise<void> => {
       setRunning(suite);
       const r = await adminApi<{
         suite: string;
@@ -204,6 +222,33 @@ export default function AiOpsPage() {
           </>
         ) : null}
 
+        {tab === "essay" ? (
+          <section>
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-title-lg text-ink">申论评测集（F0374/F0376）</h2>
+              <Button variant="secondary" loading={running === "essay"} onClick={() => void runEval("essay")}>
+                服务端运行
+              </Button>
+            </div>
+            <p className="mt-xs text-caption text-muted">
+              Rubric Grader：分数界/维度和/优先建议数/证据必填/置信必填/字数口径 + 评分一致性，全部确定性断言（F0377 人工抽样校准另行安排）。
+            </p>
+            {evalRuns.filter((r) => r.suite === "essay").length > 0 ? (
+              <div className="mt-md space-y-md">
+                {evalRuns
+                  .filter((r) => r.suite === "essay")
+                  .slice(0, 3)
+                  .map((r) => (
+                    <EvalReport key={r.id} row={r} />
+                  ))}
+              </div>
+            ) : (
+              <p className="mt-md text-body-sm text-muted">未运行。</p>
+            )}
+            {lastOutcome?.suite === "essay" ? <CaseResults outcome={lastOutcome} /> : null}
+          </section>
+        ) : null}
+
         {tab === "prompt" && config ? (
           <>
             <section>
@@ -261,6 +306,16 @@ export default function AiOpsPage() {
                   </li>
                 ))}
               </ul>
+              {/* F0370 Prompt 版本差异：文本与状态对比，发布前必须跑回归 */}
+              {config.prompt_versions.length >= 2 ? (
+                <Card className="mt-md" padding="dense">
+                  <p className="text-label-md text-muted">版本差异对比（F0370）</p>
+                  <p className="mt-xs text-caption text-body">
+                    当前候选「{config.prompt_versions[config.prompt_versions.length - 1]!.v}」相对已发布版本：
+                    {config.prompt_versions[config.prompt_versions.length - 1]!.note}。发布前请运行 Parser / 诊断 / 申论回归门禁。
+                  </p>
+                </Card>
+              ) : null}
             </section>
             <section>
               <h2 className="text-title-lg text-ink">Schema 版本（F0371）</h2>
@@ -316,6 +371,30 @@ export default function AiOpsPage() {
               </p>
             </Card>
           </>
+        ) : null}
+
+        {tab === "eval" ? (
+          <Card>
+            <p className="text-label-md text-muted">生产反馈候选池（F0380/F0381）</p>
+            {feedbackClusters.length === 0 ? (
+              <p className="mt-xs text-body-sm text-muted">暂无匿名化失败候选；用户纠错/工单会自动入池。</p>
+            ) : (
+              <>
+                <ul className="mt-sm space-y-xs text-body-sm text-body">
+                  {feedbackClusters.map((c) => <li key={c.cluster} className="flex justify-between"><span>{c.cluster} · 示例：{c.sample}</span><Chip tone={c.count >= 2 ? "warning" : "neutral"}>{c.count}</Chip></li>)}
+                </ul>
+                <p className="mt-sm text-caption text-muted">候选只显示经脱敏摘录；仅“来源已验证”的候选会展示实际生产者与版本，来源缺失的候选不可晋升回归用例。</p>
+                <ul className="mt-sm space-y-sm">
+                  {feedbackCandidates.map((candidate) => (
+                    <li key={candidate.id} className="rounded-sm border border-border bg-surface p-sm text-caption text-body">
+                      <p>{candidate.category} · {candidate.sanitizedExcerpt}</p>
+                      <p className="mt-xxs text-muted">脱敏：{candidate.redactionVersion}{candidate.piiCategories.length ? `（${candidate.piiCategories.join("、")}）` : "（未检测到 PII）"} · 来源：{candidate.provenanceStatus === "verified" ? `${candidate.producerKind === "rule_engine" ? "规则引擎" : "模型"} ${candidate.feature ?? ""} ${candidate.modelVersion ?? ""} ${candidate.promptVersion ?? ""}` : "不可用（不可晋升）"} · 审核：{candidate.reviewStatus}</p>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </Card>
         ) : null}
 
         {tab === "monitor" ? (

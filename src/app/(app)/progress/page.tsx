@@ -7,15 +7,19 @@
  * §13.3：比较顺序 = 自己的过去 → 目标线 →（可选）群体。
  */
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/StateViews";
 import { TrendLine } from "@/components/charts/TrendLine";
 import { useProfileStore } from "@/lib/profile/store";
 import { MODULES, TOTAL_FULL_SCORE } from "@/lib/profile/types";
+import { aggregateErrorCauses, forecastScore } from "@/lib/insights/v1";
+import { computeAbilityDimensions } from "@/lib/ability/dimensions";
+import { questionById } from "@/lib/questions/seed";
 
 export default function ProgressPage() {
-  const { imports, baseline, profile, taskResults, sessions, prescription } = useProfileStore();
+  const { imports, baseline, profile, taskResults, sessions, attemptRecords, profileCorrections, addProfileCorrection, prescription, wrongBook } = useProfileStore();
+  const [correctionText, setCorrectionText] = useState("");
 
   const exams = useMemo(
     () =>
@@ -56,13 +60,44 @@ export default function ProgressPage() {
   }).filter((s) => s.points.length >= 2);
 
   const latestModules = exams[exams.length - 1]?.modules ?? [];
+  // F0297 连续有效学习天数（至少完成一项任务才算，不靠打开 App 打卡）
+  const effectiveStreak = (() => {
+    const days = new Set(taskResults.filter((r) => r.metCriteria).map((r) => r.completedAt.slice(0, 10)));
+    let n = 0;
+    for (let offset = 0; offset < 365; offset++) {
+      const d = new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+      if (!days.has(d)) break;
+      n += 1;
+    }
+    return n;
+  })();
+
+  // V1 能力画像：从实际会话轨迹派生题型/稳定性/自动化/遗忘风险（F0071/F0074–0076）
+  const ability = useMemo(() => {
+    // 已有 V1 轨迹优先；老会话兼容性回放作为回退
+    const attempts = attemptRecords.length > 0
+      ? attemptRecords
+      : sessions.filter((s) => s.finishedAt != null).flatMap((s) => Object.entries(s.answers).map(([qid, a]) => {
+          const q = questionById(qid);
+          return {
+            moduleId: s.moduleId,
+            questionType: q?.type ?? "未标注题型",
+            knowledgePoint: q?.knowledgePoint ?? "未标注知识点",
+            correct: q != null && a.choice === q.answerIndex,
+            seconds: a.seconds,
+            answerChanges: 0,
+            at: s.finishedAt ?? s.startedAt,
+          };
+        }));
+    return computeAbilityDimensions(attempts);
+  }, [attemptRecords, sessions]);
 
   // F0280 训练量：来自任务完成记录；未关联任务的会话只计时长与题量
   const trainStats = (() => {
     const minutes = taskResults.reduce((s, r) => s + r.minutes, 0);
     const questions =
       taskResults.reduce((s, r) => s + (r.questions ?? 0), 0) +
-      sessions.filter((s2) => s2.taskId == null).length * 8;
+      sessions.filter((s2) => s2.taskId == null && s2.finishedAt != null).length * 8;
     const doneTasks = taskResults.length;
     const completionRate =
       prescription == null || prescription.tasks.length === 0
@@ -209,6 +244,82 @@ export default function ProgressPage() {
                 </li>
               ))}
             </ol>
+          </Card>
+        ) : null}
+
+        {/* F0297/F0298：真实有效学习天数与克制的里程碑确认 */}
+        <Card>
+          <p className="text-label-md text-muted">学习节奏</p>
+          <p className="mt-xs text-stat-md text-ink">{effectiveStreak} 天</p>
+          <p className="text-caption text-muted">连续有效学习（只计达到成功判定的任务）</p>
+          {effectiveStreak > 0 && effectiveStreak % 7 === 0 ? <p className="mt-sm text-body-sm text-success">达成 {effectiveStreak} 天阶段节点。没有烟花——你已经有了可验证的投入证据。</p> : null}
+        </Card>
+
+        {/* V1 能力画像（F0071/F0074/F0075/F0076） */}
+        <Card>
+          <p className="text-label-md text-muted">能力画像</p>
+          {ability.byType.length === 0 ? (
+            <p className="mt-sm text-body-sm text-muted">完成至少 5 道同题型训练后，这里会出现题型能力。</p>
+          ) : (
+            <ul className="mt-sm space-y-xs text-body-sm text-body">
+              {ability.byType.slice(0, 5).map((x) => <li key={x.type} className="flex justify-between"><span>{x.type}</span><span>{x.accuracy == null ? "样本不足" : `${Math.round(x.accuracy * 100)}%`} · {x.sample} 题</span></li>)}
+            </ul>
+          )}
+          <p className="mt-md text-caption text-muted">稳定性：{ability.stability.level ?? "样本不足"} · 自动化：{ability.automation.ratio == null ? "样本不足" : `${Math.round(ability.automation.ratio * 100)}% 快且正确`}</p>
+          {ability.forgetting.filter((x) => x.risk === "高").slice(0, 2).map((x) => <p key={x.knowledgePoint} className="mt-xs text-caption text-warning">复习到期：{x.knowledgePoint} · {x.note}</p>)}
+          {/* F0079：用户可纠正画像判断，不静默覆盖 */}
+          <div className="mt-md border-t border-border pt-md">
+            <p className="text-caption text-muted">画像不符合你的实际情况？告诉系统（F0079）</p>
+            <div className="mt-xs flex gap-sm">
+              <input value={correctionText} onChange={(e) => setCorrectionText(e.target.value)} aria-label="画像纠正" placeholder="如：我资料分析慢是因为晚上练" className="h-10 flex-1 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink" />
+              <button type="button" disabled={!correctionText.trim()} onClick={() => { addProfileCorrection({ scope: "知识点", key: "能力画像", userSays: correctionText.trim() }); setCorrectionText(""); }} className="rounded-sm border border-primary px-md text-caption text-primary disabled:opacity-40">纠正</button>
+            </div>
+            {profileCorrections.length > 0 ? <p className="mt-xs text-micro text-muted">已记录 {profileCorrections.length} 条用户纠正；后续诊断会与这些说明一并呈现。</p> : null}
+          </div>
+        </Card>
+
+        {/* F0192/F0193 分数预测（区间，非伪精确） */}
+        {(() => {
+          const totals = exams
+            .slice(-6)
+            .map((e) => e.totalScore)
+            .filter((v): v is number => v != null);
+          const f = forecastScore(totals, baseline?.confidence ?? null);
+          if (!f) return null;
+          return (
+            <Card>
+              <div className="flex items-center justify-between">
+                <p className="text-label-md text-muted">当前水平预测（F0192）</p>
+                <span className="text-caption text-muted">{f.dataNote}</span>
+              </div>
+              <p className="mt-sm text-stat-lg text-ink">
+                {f.low} – {f.high}
+              </p>
+              <p className="mt-xs text-caption text-muted">{f.note}</p>
+            </Card>
+          );
+        })()}
+
+        {/* F0158/F0159/F0160 错因聚合 */}
+        {wrongBook.length > 0 ? (
+          <Card>
+            <p className="text-label-md text-muted">错因聚合（按错因，不只按题型）</p>
+            <ul className="mt-sm space-y-xs text-body-sm text-body">
+              {aggregateErrorCauses(wrongBook)
+                .ranking.slice(0, 4)
+                .map((r) => (
+                  <li key={r.cause} className="flex justify-between">
+                    <span>{r.cause}</span>
+                    <span className="text-muted">
+                      {r.count} 题 · {r.share}%
+                    </span>
+                  </li>
+                ))}
+            </ul>
+            <p className="mt-xs text-caption text-muted">
+              复发率 {aggregateErrorCauses(wrongBook).relapseRate ?? "—"}% ·
+              已修复 {aggregateErrorCauses(wrongBook).fixStatus.已修复} 题
+            </p>
           </Card>
         ) : null}
 

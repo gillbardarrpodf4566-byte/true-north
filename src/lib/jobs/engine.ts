@@ -6,13 +6,12 @@
 import {
   EDUCATION_ORDER,
   POLITICAL_ORDER,
-  type EducationLevel,
   type JobMatch,
   type JobPosition,
   type JobSeekerProfile,
-  type PoliticalStatus,
   type RequirementCheck,
 } from "./types";
+import { DEFAULT_RULE_SET, type QualificationRuleSet } from "./rules";
 
 /** F0353 资格规则配置（服务端可覆盖）：专业大类同义映射 */
 export const DEFAULT_MAJOR_SYNONYMS: Record<string, string[]> = {
@@ -43,7 +42,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 2, interviewScore: 131.2, applicants: 96 },
       { year: 2025, recruited: 3, interviewScore: 128.6, applicants: 118 },
     ],
-    source: { name: "2026 国考职位表（官方）", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15" },
+    source: { name: "2026 国考职位表（官方）·演示数据", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15", origin: "simulated" },
   },
   {
     id: "job-002",
@@ -61,7 +60,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 1, interviewScore: 124.5, applicants: 61 },
       { year: 2025, recruited: 1, interviewScore: 126.8, applicants: 74 },
     ],
-    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20" },
+    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-003",
@@ -79,7 +78,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 3, interviewScore: 118.9, applicants: 142 },
       { year: 2025, recruited: 2, interviewScore: 121.4, applicants: 158 },
     ],
-    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20" },
+    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-004",
@@ -96,7 +95,7 @@ export const SEED_POSITIONS: JobPosition[] = [
     history: [
       { year: 2025, recruited: 1, interviewScore: 138.2, applicants: 203 },
     ],
-    source: { name: "2026 选调职位表（官方）", file: "2026-xd-positions.xlsx", updatedAt: "2026-09-01" },
+    source: { name: "2026 选调职位表（官方）·演示数据", file: "2026-xd-positions.xlsx", updatedAt: "2026-08-25", origin: "simulated" },
   },
   {
     id: "job-005",
@@ -114,7 +113,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 4, interviewScore: 108.3, applicants: 88 },
       { year: 2025, recruited: 5, interviewScore: 110.1, applicants: 95 },
     ],
-    source: { name: "2026 省考职位表（官方）", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30" },
+    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30", origin: "simulated" },
   },
   {
     id: "job-006",
@@ -132,7 +131,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 2, interviewScore: 134.7, applicants: 187 },
       { year: 2025, recruited: 2, interviewScore: 136.1, applicants: 210 },
     ],
-    source: { name: "2026 市考职位表（官方）", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28" },
+    source: { name: "2026 市考职位表（官方）·演示数据", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28", origin: "simulated" },
   },
 ];
 
@@ -163,9 +162,12 @@ export function checkRequirements(
   p: JobPosition,
   profile: JobSeekerProfile,
   synonyms: Record<string, string[]> = DEFAULT_MAJOR_SYNONYMS,
+  rules: QualificationRuleSet = DEFAULT_RULE_SET,
 ): RequirementCheck[] {
   const checks: RequirementCheck[] = [];
-  const eduPass = EDUCATION_ORDER[profile.education] >= EDUCATION_ORDER[p.minEducation];
+  const educationOrder = Object.fromEntries(rules.educationOrder.map((level, index) => [level, index + 1])) as Record<string, number>;
+  const politicalOrder = Object.fromEntries(rules.politicalOrder.map((status, index) => [status, index + 1])) as Record<string, number>;
+  const eduPass = (educationOrder[profile.education] ?? EDUCATION_ORDER[profile.education]) >= (educationOrder[p.minEducation] ?? EDUCATION_ORDER[p.minEducation]);
   checks.push({
     field: "学历",
     pass: eduPass,
@@ -180,18 +182,18 @@ export function checkRequirements(
     reason: major.reason ?? (major.needsConfirm ? "专业按目录同义匹配，报名前请对照官方目录复核" : undefined),
   });
 
-  const polPass = POLITICAL_ORDER[profile.politicalStatus] >= POLITICAL_ORDER[p.politicalRequirement];
+  const polPass = (politicalOrder[profile.politicalStatus] ?? POLITICAL_ORDER[profile.politicalStatus]) >= (politicalOrder[p.politicalRequirement] ?? POLITICAL_ORDER[p.politicalRequirement]);
   checks.push({
     field: "政治面貌",
     pass: polPass,
     reason: polPass ? undefined : `要求 ${p.politicalRequirement}，你是 ${profile.politicalStatus}`,
   });
 
-  const grassPass = !p.requiresGrassroots || profile.grassrootsYears >= 2;
+  const grassPass = !p.requiresGrassroots || profile.grassrootsYears >= rules.grassrootsYearsWhenRequired;
   checks.push({
     field: "基层经历",
     pass: grassPass,
-    reason: grassPass ? undefined : `要求 2 年以上基层工作经历，你登记 ${profile.grassrootsYears} 年`,
+    reason: grassPass ? undefined : `要求 ${rules.grassrootsYearsWhenRequired} 年以上基层工作经历，你登记 ${profile.grassrootsYears} 年`,
   });
 
   const freshPass = !p.freshOnly || profile.isFreshGraduate;
@@ -213,13 +215,14 @@ function estimateScore(profile: JobSeekerProfile, targetScore: number | null): n
 export function matchPositions(
   positions: JobPosition[],
   profile: JobSeekerProfile,
-  opts: { targetScore?: number | null; synonyms?: Record<string, string[]> } = {},
+  opts: { targetScore?: number | null; synonyms?: Record<string, string[]>; rules?: QualificationRuleSet; ruleRevision?: number } = {},
 ): JobMatch[] {
   const target = estimateScore(profile, opts.targetScore ?? null);
-  const synonyms = opts.synonyms ?? DEFAULT_MAJOR_SYNONYMS;
+  const rules = opts.rules ?? DEFAULT_RULE_SET;
+  const synonyms = opts.synonyms ?? rules.majorSynonyms;
 
   const matches: JobMatch[] = positions.map((p) => {
-    const checks = checkRequirements(p, profile, synonyms);
+    const checks = checkRequirements(p, profile, synonyms, rules);
     const hardFail = checks.some((c) => !c.pass);
     // 同义匹配（needsConfirm）不算不确定结论：判定仍为可报，仅在 UI 提示人工复核
     const verdict: JobMatch["verdict"] = hardFail ? "不可报" : "可报";
@@ -233,6 +236,8 @@ export function matchPositions(
     const dataStale = ageDays > 365;
 
     const reasons: string[] = [];
+    const unavailableFactors: string[] = [];
+    let preferenceScore = 0;
     let tier: JobMatch["tier"] | undefined;
     if (verdict !== "不可报" && latest) {
       if (competitionRatio != null && competitionRatio <= 40) {
@@ -240,21 +245,57 @@ export function matchPositions(
       }
       if (latest.interviewScore != null) {
         const diff = Math.round((target - latest.interviewScore) * 10) / 10;
-        tier = diff >= 5 ? "冲" : diff >= -3 ? "稳" : "保";
+        // 目标分高于历史线代表更有把握：高于线为保，接近为稳，低于线为冲。
+        tier = diff <= -5 ? "冲" : diff <= 3 ? "稳" : "保";
         reasons.push(
           `去年进面分 ${latest.interviewScore}，与你预估 ${target} 相差 ${diff > 0 ? "+" : ""}${diff} 分`,
         );
       }
-      if (profile.preferences.region === p.region) {
-        reasons.push(`符合你的地区偏好（${p.region}）`);
+      if (profile.preferences.region) {
+        if (profile.preferences.region === p.region) {
+          preferenceScore += 3;
+          reasons.push(`符合你的地区偏好（${p.region}）`);
+        } else if (profile.preferences.commute === "同区优先") {
+          preferenceScore -= 2;
+          reasons.push(`不在首选地区（${profile.preferences.region}），通勤偏好为同区优先`);
+        }
+      }
+      if (profile.preferences.unitLevel) {
+        if (profile.preferences.unitLevel === p.unitLevel) {
+          preferenceScore += 2;
+          reasons.push(`符合你的单位层级偏好（${p.unitLevel}）`);
+        } else {
+          reasons.push(`单位层级为${p.unitLevel}，与你偏好的${profile.preferences.unitLevel}不同`);
+        }
+      }
+      if (profile.preferences.commute) {
+        // 职位表只有地区，没有来源支持的路线/通勤时长；不猜测，明确未计分。
+        unavailableFactors.push("通勤距离（职位表未提供可验证路线数据）");
+      }
+      if (profile.preferences.developmentPriorities?.length) {
+        unavailableFactors.push("发展偏好（职位表未提供官方发展标签）");
       }
       if (dataStale) {
         reasons.push(`注意：职位数据更新于 ${p.source.updatedAt}，已超过一年，报名前请核对最新公告`);
       }
+      if (profile.preferences.riskAppetite === "稳妥" && tier === "保") preferenceScore += 1;
+      if (profile.preferences.riskAppetite === "冲刺" && tier === "冲") preferenceScore += 1;
+      if (unavailableFactors.length > 0) reasons.push(`未计入排序：${unavailableFactors.join("、")}`);
       if (reasons.length === 0) reasons.push("资格符合，暂无更多参考数据。");
     }
 
-    return { position: p, verdict, checks, tier, reasons, competitionRatio, dataStale };
+    return {
+      position: p,
+      verdict,
+      checks,
+      tier,
+      reasons,
+      competitionRatio,
+      dataStale,
+      preferenceScore,
+      unavailableFactors,
+      ruleRevision: opts.ruleRevision,
+    };
   });
 
   // 软排序：可报优先，组内按 竞争比低 → 进面分低 优先（AI 只做解释与软排序）
@@ -268,6 +309,7 @@ export function matchPositions(
       const ta = tierRank[String(a.tier)] ?? 3;
       const tb = tierRank[String(b.tier)] ?? 3;
       if (ta !== tb) return ta - tb;
+      if ((b.preferenceScore ?? 0) !== (a.preferenceScore ?? 0)) return (b.preferenceScore ?? 0) - (a.preferenceScore ?? 0);
     }
     const ca = a.competitionRatio ?? Number.MAX_SAFE_INTEGER;
     const cb = b.competitionRatio ?? Number.MAX_SAFE_INTEGER;

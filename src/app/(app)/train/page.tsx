@@ -12,9 +12,12 @@ import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore } from "@/lib/profile/store";
 import { MODULES } from "@/lib/profile/types";
 import { seedQuestions } from "@/lib/questions/seed";
+import { useState } from "react";
 
 export default function TrainPage() {
   const { prescription, taskResults, sessions, wrongBook } = useProfileStore();
+  const [mixMode, setMixMode] = useState<"专项" | "混合" | "复习" | "速度">("混合");
+  const [showMethods, setShowMethods] = useState(false);
 
   const pending = (prescription?.tasks ?? []).filter(
     (t) => !taskResults.some((r) => r.taskId === t.id),
@@ -24,6 +27,39 @@ export default function TrainPage() {
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
       <h1 className="text-headline-xl text-ink">训练</h1>
+
+      {/* V1 训练模式（F0126/F0129）：推荐与自由选择并存 */}
+      <Card className="mt-lg" tone="faint" radius="lg">
+        <p className="text-label-md text-muted">快速组一组题</p>
+        <div className="mt-sm flex flex-wrap gap-sm" role="group" aria-label="训练模式">
+          {(["专项", "混合", "复习", "速度"] as const).map((m) => (
+            <button key={m} type="button" aria-pressed={mixMode === m} onClick={() => setMixMode(m)} className={`rounded-full border px-md py-sm text-label-md ${mixMode === m ? "border-primary bg-primary-faint text-primary-active" : "border-border bg-surface text-muted"}`}>
+              {m === "混合" ? "混合练习" : m === "复习" ? "错题复测" : m === "速度" ? "速度训练" : "专项练习"}
+            </button>
+          ))}
+        </div>
+        <p className="mt-sm text-caption text-muted">
+          {mixMode === "混合" ? "跨题型轮换，避免只会一种表述。" : mixMode === "复习" ? "按错因与遗忘风险安排近邻题。" : mixMode === "速度" ? "固定题量与限时，反馈执行成本。" : "按一个模块与题型集中练习。"}
+        </p>
+        <Link href={`/train/session/auto-${mixMode}`} className="mt-md block">
+          <Button fullWidth variant="secondary">开始 {mixMode} · 8 题</Button>
+        </Link>
+      </Card>
+
+      {/* F0305 方法卡 */}
+      <div className="mt-md">
+        <button type="button" onClick={() => setShowMethods((v) => !v)} aria-expanded={showMethods} className="text-label-md text-primary">方法卡（关键解题策略）{showMethods ? "收起" : "展开"}</button>
+        {showMethods ? (
+          <Card className="mt-sm" padding="dense">
+            <ul className="space-y-xs text-body-sm text-body">
+              <li>资料分析：先读问题，再回材料定位；先估算量级，再精算。</li>
+              <li>判断推理：先写出充分/必要条件方向，避免把逆命题当原命题。</li>
+              <li>言语理解：先找转折/总结句，再判断选项是否扩大或缩小范围。</li>
+            </ul>
+            <p className="mt-sm text-caption text-muted">方法卡只给路径提示，不代替你完成题目。</p>
+          </Card>
+        ) : null}
+      </div>
 
       {/* 今日推荐（F0124） */}
       <section className="mt-lg">

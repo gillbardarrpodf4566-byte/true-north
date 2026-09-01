@@ -82,6 +82,7 @@ export default function WeeklyReviewPage() {
       wasted: wasted.length > 0 ? wasted : ["没有发现明显的无效投入。"],
       discoveries,
       nextPriorities: priorities.slice(0, 3),
+      reflection: "",
       confirmedAt: null,
     };
   }, [imports, taskResults, wrongBook, profile.conditions, weekKey]);
@@ -126,6 +127,7 @@ export default function WeeklyReviewPage() {
       ...existing,
       status: "已重排",
       nextPriorities: priorities.filter((p) => p.trim() !== ""),
+      reflection: reflection.trim() || undefined,
       confirmedAt: new Date().toISOString(),
     });
   };

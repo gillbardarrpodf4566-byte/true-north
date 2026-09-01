@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authStaff, audit, listEvalRuns, recordEvalRun } from "@/lib/server/admin";
 import { runDiagnosisEval, runParserEval } from "@/lib/server/eval";
+import { runEssayEval } from "@/lib/ai/quality";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,9 +19,9 @@ export async function GET(req: Request): Promise<NextResponse> {
 }
 
 /**
- * POST /api/admin/aiops/eval — 服务端真实执行评测（F0372/0373/0375/0378/0379）。
- * parser 用例驱动 MockAiGateway（含对抗样本），诊断用例驱动 diagnose 引擎；
- * 零容忍门禁不过则 gateVerdict=拦截。
+ * POST /api/admin/aiops/eval — 服务端真实执行评测（F0372/0373/0374/0375/0378/0379）。
+ * parser 驱动 MockAiGateway（含对抗样本），诊断驱动 diagnose 引擎，
+ * essay 跑 Rubric Grader 确定性断言；零容忍门禁不过则拦截。
  */
 export async function POST(req: Request): Promise<NextResponse> {
   const authResult = authStaff(req, "aiops:write");
@@ -38,7 +39,11 @@ export async function POST(req: Request): Promise<NextResponse> {
     body = {};
   }
   const outcome =
-    body.suite === "diagnosis" ? runDiagnosisEval() : await runParserEval();
+    body.suite === "diagnosis"
+      ? runDiagnosisEval()
+      : body.suite === "essay"
+        ? runEssayEval()
+        : await runParserEval();
   recordEvalRun(
     {
       suite: outcome.suite,

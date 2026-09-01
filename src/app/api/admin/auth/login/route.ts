@@ -4,7 +4,7 @@ import { verifyStaffLogin } from "@/lib/server/admin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** POST /api/admin/auth/login — 员工登录（种子账号见 GAP-10） */
+/** POST /api/admin/auth/login — 员工登录；账号由带外引导配置发放，失败次数过多返回 429。 */
 export async function POST(req: Request): Promise<NextResponse> {
   let body: { username?: string; password?: string };
   try {
@@ -14,7 +14,13 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
   const result = verifyStaffLogin((body.username ?? "").trim(), body.password ?? "");
   if (!result.ok) {
-    return NextResponse.json(result, { status: 401 });
+    if (result.retryAfterSeconds != null) {
+      return NextResponse.json(
+        { ok: false, message: result.message },
+        { status: 429, headers: { "Retry-After": String(result.retryAfterSeconds) } },
+      );
+    }
+    return NextResponse.json({ ok: false, message: result.message }, { status: 401 });
   }
   return NextResponse.json(result);
 }

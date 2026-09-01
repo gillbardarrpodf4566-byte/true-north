@@ -1,7 +1,7 @@
 /**
  * 申论重写闭环与报告（CL-05 step4–5 / F0216–F0226）。
  */
-import type { EssayAbility, EssayGrade, EssayQuestion, EssaySubmission } from "./types";
+import type { EssayAbility, EssayGrade, EssaySubmission, EssayType } from "./types";
 
 /** 前后对比（F0217）：高亮改善点 */
 export function compareRewrite(
@@ -41,7 +41,7 @@ export function compareRewrite(
 /** 能力更新（F0218）：按历次表现滚动更新申论维度画像 */
 export function updateEssayAbility(
   prev: EssayAbility | null,
-  q: EssayQuestion,
+  essayType: EssayType,
   grade: EssayGrade,
   at = new Date(),
 ): EssayAbility {
@@ -49,15 +49,15 @@ export function updateEssayAbility(
     id: d.id,
     score: d.full === 0 ? 0 : d.score / d.full,
   }));
-  if (!prev || prev.type !== q.type) {
-    return { type: q.type, dimensions: dims, attempts: 1, lastAt: at.toISOString() };
+  if (!prev || prev.type !== essayType) {
+    return { type: essayType, dimensions: dims, attempts: 1, lastAt: at.toISOString() };
   }
   const n = prev.attempts;
   const merged = prev.dimensions.map((d) => {
     const cur = dims.find((x) => x.id === d.id)?.score ?? d.score;
     return { id: d.id, score: Math.round(((d.score * n + cur) / (n + 1)) * 1000) / 1000 };
   });
-  return { type: q.type, dimensions: merged, attempts: n + 1, lastAt: at.toISOString() };
+  return { type: essayType, dimensions: merged, attempts: n + 1, lastAt: at.toISOString() };
 }
 
 export interface EssayReport {
@@ -73,7 +73,8 @@ export interface EssayReport {
 export function buildEssayReport(
   submissions: EssaySubmission[],
   grades: Record<string, EssayGrade>,
-  questions: Record<string, EssayQuestion>,
+  /** 题型来源：优先取提交快照，未知题型用当前已发布题型表补充。 */
+  typeById: Record<string, EssayType | undefined> = {},
 ): EssayReport {
   const graded = submissions
     .filter((s) => grades[s.id])
@@ -85,9 +86,8 @@ export function buildEssayReport(
 
   graded.forEach((s, i) => {
     const g = grades[s.id]!;
-    const q = questions[s.questionId];
     const label = `第${i + 1}次`;
-    const key = q?.type ?? "未知";
+    const key = s.questionType ?? typeById[s.questionId] ?? "未知";
     const arr = byType.get(key) ?? [];
     arr.push({ label, value: g.score });
     byType.set(key, arr);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MockAiGateway } from "./gateway";
+import { MockAiGateway, ResilientAiGateway } from "./gateway";
 
 describe("MockAiGateway（确定性）", () => {
   const gw = new MockAiGateway();
@@ -23,5 +23,14 @@ describe("MockAiGateway（确定性）", () => {
     for (const m of r.modules) {
       if (m.score != null) expect(m.score).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it("主解析失败时降级为全部待人工确认，而不是丢上传（F0388）", async () => {
+    const resilient = new ResilientAiGateway(gw);
+    const r = await resilient.parseScoreScreenshot({ fileName: "corrupt.png", sizeBytes: 1 });
+    expect(r.platform).toBe("规则降级");
+    expect(r.totalScore).toBeNull();
+    expect(r.modules.every((m) => m.score === null)).toBe(true);
+    expect(r.sourceConfidence).toBe("low");
   });
 });

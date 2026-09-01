@@ -32,7 +32,15 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   const existing = findUserByPhone(phone);
   const user = existing ?? createUser(phone);
-  const { token } = issueToken(user.id);
+  let token: string;
+  try {
+    token = issueToken(user.id).token;
+  } catch (error) {
+    if (error instanceof Error && error.message === "ACCOUNT_BANNED") {
+      return NextResponse.json({ ok: false, reason: "banned", canResendIn: 0, message: "该账号当前不可登录。如有疑问请联系人工客服。" }, { status: 403 });
+    }
+    throw error;
+  }
   return NextResponse.json({
     ok: true,
     token,

@@ -16,8 +16,14 @@ export interface JobSeekerProfile {
   /** 基层工作年限 */
   grassrootsYears: number;
   preferences: {
+    /** 地区与单位层级偏好（F0258） */
     region?: string;
     unitLevel?: string;
+    /** 粗粒度通勤容忍度，不伪造分钟级路线数据。 */
+    commute?: "同区优先" | "同城可接受" | "可跨城";
+    /** 发展偏好仅在职位有官方标签时参与排序；当前无标签则明确披露。 */
+    developmentPriorities?: Array<"晋升通道" | "专业相关" | "稳定性" | "工作生活平衡">;
+    riskAppetite?: "稳妥" | "均衡" | "冲刺";
   };
   updatedAt: string;
 }
@@ -49,8 +55,11 @@ export interface JobPosition {
   /** 仅限应届 */
   freshOnly: boolean;
   history: PositionHistory[];
-  /** F0354/F0270 数据来源与更新时间 */
-  source: { name: string; file: string; updatedAt: string };
+  /**
+   * F0354/F0270 数据来源与更新时间。
+   * origin=simulated 表示演示种子数据，不得作为官方公告依据展示或推荐。
+   */
+  source: { name: string; file: string; updatedAt: string; origin: "verified" | "simulated" };
 }
 
 export type MatchVerdict = "可报" | "不可报" | "待人工确认";
@@ -66,6 +75,8 @@ export interface RequirementCheck {
 
 export interface JobMatch {
   position: JobPosition;
+  /** 使用的资格规则版本（F0353，可审计） */
+  ruleRevision?: number;
   verdict: MatchVerdict;
   checks: RequirementCheck[];
   /** 冲稳保分组（F0264）；数据不足时为 undefined */
@@ -76,6 +87,10 @@ export interface JobMatch {
   competitionRatio: number | null;
   /** 数据是否过期（>365 天，F0270） */
   dataStale: boolean;
+  /** 可解释偏好排序分；仅对有来源事实的因素计分。 */
+  preferenceScore?: number;
+  /** 因缺少来源数据而未参与排序的因素。 */
+  unavailableFactors?: string[];
 }
 
 /** 报名节点（F0274） */

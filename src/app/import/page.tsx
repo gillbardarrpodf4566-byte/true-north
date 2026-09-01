@@ -20,13 +20,14 @@ import { checkAll } from "@/lib/quality/checks";
 import { scoreImportMachine } from "@/lib/import/machine";
 import { useProfileStore, type ScoreImport } from "@/lib/profile/store";
 import { computeBaseline } from "@/lib/baseline/compute";
-import { recordPermission } from "@/lib/auth/client";
+import { getToken, recordPermission } from "@/lib/auth/client";
+import { stableDigest } from "@/lib/import/advanced";
 
 const STAGE_TEXTS = ["正在识别截图中的成绩信息…", "正在核对模块与题量一致性…", "整理好了，等你确认"];
 
 export default function ImportPage() {
   const router = useRouter();
-  const { addImport, setBaseline, imports } = useProfileStore();
+  const { addImport, setBaseline, imports, privacy } = useProfileStore();
   const [snapshot, send] = useMachine(scoreImportMachine);
   const [stageText, setStageText] = useState(0);
   const [platform, setPlatform] = useState<string | null>(null);
@@ -75,31 +76,56 @@ export default function ImportPage() {
   const confirmAndSave = (): void => {
     const parse = snapshot.context.parse;
     if (!parse) return;
+    const editedTotal = applyEdits(parse.totalScore, "total", snapshot.context.editedValues, Number);
+    const editedModules = parse.modules.map((m) => ({
+      id: m.id,
+      score: applyEdits(m.score, `module:${m.id}:score`, snapshot.context.editedValues, Number),
+      questions: m.questions,
+      correct: applyEdits(m.correct, `module:${m.id}:correct`, snapshot.context.editedValues, Number),
+      secondsPerQuestion: applyEdits(m.secondsPerQuestion, `module:${m.id}:seconds`, snapshot.context.editedValues, Number),
+    }));
+    const importFingerprint = stableDigest({ kind: "score-screenshot", platform: parse.platform, examLabel: parse.examLabel, totalScore: editedTotal, modules: editedModules });
     const imp: ScoreImport = {
-      id: `imp-${Date.now()}`,
+      id: `imp-${importFingerprint}`,
       source: "截图",
       platform: parse.platform,
       examLabel: parse.examLabel,
       importedAt: new Date().toISOString(),
-      totalScore: applyEdits(parse.totalScore, "total", snapshot.context.editedValues, Number),
-      modules: parse.modules.map((m) => ({
-        id: m.id,
-        score: applyEdits(m.score, `module:${m.id}:score`, snapshot.context.editedValues, Number),
-        questions: m.questions,
-        correct: applyEdits(m.correct, `module:${m.id}:correct`, snapshot.context.editedValues, Number),
-        secondsPerQuestion: applyEdits(
-          m.secondsPerQuestion,
-          `module:${m.id}:seconds`,
-          snapshot.context.editedValues,
-          Number,
-        ),
-      })),
+      totalScore: editedTotal,
+      sourceRef: {
+        kind: "screenshot",
+        // blob URL 只适用于当前页面，不能作为持久证据引用；保留真实策略与解析指纹。
+        rawEvidence: privacy.screenshotPolicy === "确认后自动删除" ? "[用户选择确认后自动删除原截图]" : `[截图证据已接收，指纹 ${importFingerprint}]`,
+        parserVersion: "mock-parse-v1",
+      },
+      modules: editedModules,
     };
     addImport(imp);
-    setBaseline(computeBaseline([...imports, imp]));
-    // 用户纠正率埋点（F0386）
+    // 同一语义指纹重复确认只更新同一条记录，不能重复贡献基线。
+    setBaseline(computeBaseline([...imports.filter((item) => item.id !== imp.id), imp]));
+    // F0049/F0380：用户修改识别值反哺解析评测候选集（匿名化、只记录字段名和数量）
     const corrected = Object.keys(snapshot.context.editedValues).length;
-    void corrected;
+    if (corrected > 0) {
+      const token = getToken();
+      void (async () => {
+        const context: { ok: boolean; invocationId?: string } = await fetch("/api/ai/invocations", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({ producerKind: "rule_engine", feature: "parse", schemaVersion: "parse-schema-v1" }),
+        }).then((response) => response.json() as Promise<{ ok: boolean; invocationId?: string }>).catch(() => ({ ok: false }));
+        await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({
+            type: "问题",
+            target: "parse:user-correction",
+            invocationId: context.ok ? context.invocationId : undefined,
+            text: `用户确认成绩时修正了 ${corrected} 个字段（${Object.keys(snapshot.context.editedValues).join("、")}），待进入解析评测候选集。`,
+            hasScreenshot: false,
+          }),
+        });
+      })();
+    }
     send({ type: "SUBMIT" });
     router.replace("/baseline");
   };
@@ -290,9 +316,12 @@ function UploadStep({
         </label>
       )}
 
-      <div className="mt-lg">
+      <div className="mt-lg space-y-sm">
         <Button variant="secondary" fullWidth onClick={() => (window.location.href = "/import/manual")}>
           没有截图？手工录入成绩
+        </Button>
+        <Button variant="tertiary" fullWidth onClick={() => (window.location.href = "/import/advanced")}>
+          导入历史模考 / 练习记录 / 外部错题
         </Button>
       </div>
     </section>

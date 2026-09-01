@@ -10,9 +10,30 @@
 import type {
   EssayGrade,
   EssayQuestion,
+  EssayRubric,
   HitPoint,
   MissedPoint,
 } from "./types";
+
+/** F0346：后台 Rubric 发布前的完整 schema 校验，防止缺维度导致所有分为 0。 */
+export function isValidEssayRubric(value: unknown): value is EssayRubric {
+  if (!value || typeof value !== "object") return false;
+  const r = value as Partial<EssayRubric>;
+  if (!Number.isFinite(r.fullScore) || (r.fullScore ?? 0) <= 0 || !Number.isFinite(r.contentWeight) || (r.contentWeight ?? 0) < 0 || (r.contentWeight ?? 0) > 1) return false;
+  if (!Array.isArray(r.dimensions) || r.dimensions.length !== 4) return false;
+  const expected = new Set(["内容", "结构", "语言", "规范"]);
+  const seen = new Set<string>();
+  let sum = 0;
+  for (const d of r.dimensions) {
+    if (!d || !expected.has(d.id) || seen.has(d.id) || !Number.isFinite(d.weight) || d.weight < 0) return false;
+    seen.add(d.id);
+    sum += d.weight;
+  }
+  if (seen.size !== 4 || Math.abs(sum - 1) > 0.001) return false;
+  if (!Array.isArray(r.structureSignals) || !r.structureSignals.every((x) => typeof x === "string")) return false;
+  if (!Array.isArray(r.informalWords) || !r.informalWords.every((x) => x && typeof x.bad === "string" && typeof x.good === "string")) return false;
+  return Array.isArray(r.exampleOutline) && r.exampleOutline.every((x) => typeof x === "string");
+}
 
 export function splitSentences(text: string): Array<{ text: string; index: number }> {
   return text

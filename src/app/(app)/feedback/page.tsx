@@ -8,7 +8,7 @@ import { useProfileStore } from "@/lib/profile/store";
 
 export default function FeedbackPage() {
   const { addFeedback, feedbacks } = useProfileStore();
-  const [type, setType] = useState<"问题" | "建议">("问题");
+  const [type, setType] = useState<"问题" | "建议" | "内容纠错">("问题");
   const [text, setText] = useState("");
   const [hasShot, setHasShot] = useState(false);
   const [done, setDone] = useState(false);
@@ -39,7 +39,7 @@ export default function FeedbackPage() {
 
       <Card className="mt-lg">
         <div role="radiogroup" aria-label="反馈类型" className="flex gap-sm">
-          {(["问题", "建议"] as const).map((t) => (
+          {(["问题", "建议", "内容纠错"] as const).map((t) => (
             <button
               key={t}
               type="button"

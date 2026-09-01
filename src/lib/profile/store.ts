@@ -14,6 +14,68 @@ import type { Prescription } from "@/lib/prescription/engine";
 import type { WrongBookEntry } from "@/lib/errorcause/engine";
 import { updateEssayAbility } from "@/lib/essay/rewrite";
 import type { EssaySubmission } from "@/lib/essay/types";
+import type { AttemptRecord } from "@/lib/ability/dimensions";
+
+/**
+ * 隔离本地持久化：同一浏览器不同账号不能共享学习、错题、选岗和隐私数据。
+ * 旧版单键 `jianan-profile` 仅在访客首次加载时迁移为 guest，避免静默泄露给登录用户。
+ */
+const ACTIVE_PROFILE_NAMESPACE = "jianan-active-profile";
+const LEGACY_PROFILE_KEY = "jianan-profile";
+const PROFILE_KEY_PREFIX = "jianan-profile:";
+
+function activeProfileStorageKey(): string {
+  if (typeof window === "undefined") return `${PROFILE_KEY_PREFIX}guest`;
+  return `${PROFILE_KEY_PREFIX}${localStorage.getItem(ACTIVE_PROFILE_NAMESPACE) ?? "guest"}`;
+}
+
+const profileStorage = {
+  getItem: (): string | null => {
+    const key = activeProfileStorageKey();
+    let value = localStorage.getItem(key);
+    if (value == null && key === `${PROFILE_KEY_PREFIX}guest`) {
+      const legacy = localStorage.getItem(LEGACY_PROFILE_KEY);
+      if (legacy != null) {
+        localStorage.setItem(key, legacy);
+        localStorage.removeItem(LEGACY_PROFILE_KEY);
+        value = legacy;
+      }
+    }
+    return value;
+  },
+  setItem: (name: string, value: string): void => {
+    void name;
+    localStorage.setItem(activeProfileStorageKey(), value);
+  },
+  removeItem: (): void => localStorage.removeItem(activeProfileStorageKey()),
+};
+
+/** 在认证身份切换前调用；随后完整页面重载，Zustand 会从对应命名空间重新 hydrate。 */
+export function selectProfileNamespace(namespace: string): void {
+  if (typeof window !== "undefined") localStorage.setItem(ACTIVE_PROFILE_NAMESPACE, namespace);
+}
+
+/**
+ * 删除账号时清空当前命名空间的持久化快照（F0332/F0334）。
+ * 只删当前激活空间，不切换空间，避免误删其他账号或访客数据。
+ */
+export function clearActiveProfileNamespace(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(activeProfileStorageKey());
+}
+
+/** 未完成训练的恢复快照；完成后必须移除，避免复用过期的题目状态。 */
+export interface TrainingSessionDraft {
+  phase: "running" | "paused";
+  /** 以题目 ID 恢复，而不是易受题库变化影响的数组下标。 */
+  currentQuestionId: string | null;
+  /** 当前尚未确认题目的累计可见作答时间（秒）。 */
+  currentQuestionSeconds: number;
+  selectedChoice: number | null;
+  submitted: boolean;
+  answerChanges: Record<string, number>;
+  savedAt: string;
+}
 
 /** 一次训练会话（CL-03 作答轨迹） */
 export interface TrainingSession {
@@ -22,11 +84,14 @@ export interface TrainingSession {
   taskId: string | null;
   moduleId: string;
   questionIds: string[];
+  /** 已确认作答或跳过的题；未提交选择保留在 draft。 */
   answers: Record<string, { choice: number | null; seconds: number; skipped: boolean }>;
   startedAt: string;
   finishedAt: string | null;
   /** 会话总用时（秒） */
   totalSeconds: number;
+  /** 未完成时用于恢复，完成记录不保留。 */
+  draft?: TrainingSessionDraft;
   /** 关联的错题复测条目（复测会话结束时回写验证状态） */
   wrongIds?: string[];
 }
@@ -40,6 +105,8 @@ export interface ScoreImport {
   examLabel: string;
   importedAt: string;
   totalScore: number | null;
+  /** 原始证据与解析版本关联（F0048） */
+  sourceRef?: { kind: "screenshot" | "external"; rawEvidence: string; parserVersion?: string };
   /** 模块级数据；缺失字段为 null（F0036 禁止编造） */
   modules: Array<{
     id: ModuleId;
@@ -72,17 +139,24 @@ interface ProfileState {
   imports: ScoreImport[];
   baseline: BaselineSnapshot | null;
   diagnosis: Diagnosis | null;
+  diagnosisHistory: Array<{ generatedAt: string; topModuleId: string | null; provisional: boolean }>;
   prescription: Prescription | null;
   /** 任务完成记录（F0115：记录结果而非仅勾选） */
   taskResults: TaskResult[];
   /** 训练会话（作答轨迹持久化：禁止中断丢失已作答） */
   sessions: TrainingSession[];
+  /** V1 高级能力画像的题级作答轨迹（F0071/F0074/F0075/F0076/F0131） */
+  attemptRecords: AttemptRecord[];
+  /** F0079 用户对画像/薄弱项的纠正，系统保留用户说法不静默覆盖 */
+  profileCorrections: Array<{ scope: "题型" | "知识点" | "错因"; key: string; userSays: string; at: string }>;
   /** 错题本（F0149 答错自动入库） */
   wrongBook: WrongBookEntry[];
   /** 今日临时可用时间覆盖（F0054） */
   todayMinutesOverride: number | null;
   /** 周复盘（状态机：待生成→待确认→已重排；禁止静默改变下周目标） */
   weeklyReview: WeeklyReview | null;
+  /** AI 对话续接（F0174：同一学习上下文的最近对话） */
+  coachHistory: Array<{ id: string; role: "user" | "coach"; text: string; context: string; at: string }>;
   /** AI 回答反馈与举报（F0178/F0179/F0319） */
   aiFeedback: Array<{
     id: string;
@@ -105,16 +179,33 @@ interface ProfileState {
   essayAbilities: import("@/lib/essay/types").EssayAbility[];
   /** 延后的处方任务：date → taskIds（F0117） */
   postponedTasks: Record<string, string[]>;
-  /** 通知偏好（F0290/F0324） */
-  notifications: { taskReminder: boolean; diagnosisReady: boolean; examDeadline: boolean; window: string };
+  /** 未完成原因与V1动态计划变更（F0116/F0121） */
+  taskAdjustments: Array<{ taskId: string; reason: "时间不足" | "太难" | "计划不合理" | "其他"; at: string; change: string }>;
+  /** 关注库：高耗时/低信心但答对的题（F0150） */
+  watchlist: string[];
+  /** 通知偏好（F0290/F0324/F0294） */
+  notifications: { taskReminder: boolean; diagnosisReady: boolean; examDeadline: boolean; review: boolean; progress: boolean; window: string; proactive: boolean };
+  /** F0293 连续忽略降频、F0316/0317 消息已读状态 */
+  notificationState: { ignoredStreak: number; dismissed: string[] };
+  /** 学习偏好与教练风格（F0023/F0025/F0026/F0325） */
+  learningPreferences: {
+    resources: string[];
+    mode: "短练" | "长练" | "混合";
+    content: "文字" | "互动";
+    coachStyle: "直接" | "温和" | "苏格拉底式";
+    proactive: boolean;
+  };
+  /** 隐私策略（F0328/F0329） */
+  privacy: { screenshotPolicy: "识别后保留" | "确认后自动删除"; personalization: boolean };
   /** 功能反馈（F0318） */
-  feedbacks: Array<{ id: string; type: "问题" | "建议"; text: string; hasScreenshot: boolean; at: string }>;
+  feedbacks: Array<{ id: string; type: "问题" | "建议" | "内容纠错"; text: string; hasScreenshot: boolean; at: string }>;
   /** Horizon Reveal 当天是否已播放（§7.4/§8.9 一天只完整执行一次） */
   lastRevealDate: string | null;
   setAgreements: (a: Agreements) => void;
   setGoal: (g: ExamGoal) => void;
   setConditions: (c: LearningConditions) => void;
   setNickname: (n: string) => void;
+  setProfile: (p: Partial<Profile>) => void;
   addImport: (i: ScoreImport) => void;
   upsertImport: (i: ScoreImport) => void;
   setBaseline: (b: BaselineSnapshot) => void;
@@ -122,23 +213,33 @@ interface ProfileState {
   setPrescription: (p: Prescription) => void;
   addTaskResult: (r: TaskResult) => void;
   upsertSession: (s: TrainingSession) => void;
+  addAttemptRecords: (records: AttemptRecord[]) => void;
+  addProfileCorrection: (c: { scope: "题型" | "知识点" | "错因"; key: string; userSays: string }) => void;
   addWrongEntries: (e: WrongBookEntry[]) => void;
   updateWrongEntry: (questionId: string, patch: Partial<WrongBookEntry>) => void;
   setTodayMinutesOverride: (m: number | null) => void;
   setWeeklyReview: (w: WeeklyReview) => void;
+  addCoachTurns: (turns: Array<{ id: string; role: "user" | "coach"; text: string; context: string; at: string }>) => void;
   addAiFeedback: (f: { target: string; helpful: boolean | null; reported: boolean; reason: string }) => void;
   purchaseMembership: (plan: Membership["plan"], ok: boolean) => void;
+  restorePurchase: () => void;
+  requestRefund: (channel: Membership["refunds"][number]["channel"], reason: string) => void;
   toggleFavorite: (questionId: string) => void;
   setJobProfile: (p: import("@/lib/jobs/types").JobSeekerProfile) => void;
   toggleJobFavorite: (qid: string) => void;
   addEssaySubmission: (
     s: import("@/lib/essay/types").EssaySubmission,
-    q: import("@/lib/essay/types").EssayQuestion,
+    essayType: import("@/lib/essay/types").EssayType,
     grade: import("@/lib/essay/types").EssayGrade,
   ) => void;
   postponeTask: (date: string, taskId: string) => void;
+  addTaskAdjustment: (a: { taskId: string; reason: "时间不足" | "太难" | "计划不合理" | "其他"; change: string }) => void;
+  toggleWatchlist: (questionId: string) => void;
   setNotifications: (n: Partial<ProfileState["notifications"]>) => void;
-  addFeedback: (f: { type: "问题" | "建议"; text: string; hasScreenshot: boolean }) => void;
+  dismissNotification: (id: string) => void;
+  setLearningPreferences: (p: Partial<ProfileState["learningPreferences"]>) => void;
+  setPrivacy: (p: Partial<ProfileState["privacy"]>) => void;
+  addFeedback: (f: { type: "问题" | "建议" | "内容纠错"; text: string; hasScreenshot: boolean }) => void;
   markRevealed: (date: string) => void;
   reset: () => void;
 }
@@ -153,6 +254,8 @@ export interface WeeklyReview {
   discoveries: string[];
   /** 下周 1–3 个重点（用户确认后才生效，禁止静默改变下周目标） */
   nextPriorities: string[];
+  /** F0287 用户反思：本周感受/困难/时间变化 */
+  reflection?: string;
   confirmedAt: string | null;
 }
 
@@ -161,7 +264,13 @@ export interface Membership {
   /** 免费版每周诊断生成额度 */
   diagnosisQuota: number;
   usedDiagnosis: number;
+  /** V1 F0313：AI/批改额度（mock） */
+  aiQuota: number;
+  usedAi: number;
+  /** V1 F0314：到期日 */
+  expiresAt: string | null;
   orders: Array<{ id: string; plan: Membership["plan"]; status: "处理中" | "成功" | "失败"; at: string }>;
+  refunds: Array<{ id: string; channel: "App Store" | "微信" | "Apple"; reason: string; status: "已提交" | "已完成"; at: string }>;
 }
 
 /** 任务完成结果（F0115） */
@@ -191,14 +300,18 @@ export const useProfileStore = create<ProfileState>()(
       imports: [],
       baseline: null,
       diagnosis: null,
+      diagnosisHistory: [],
       prescription: null,
       taskResults: [],
       sessions: [],
+      attemptRecords: [],
+      profileCorrections: [],
       wrongBook: [],
       todayMinutesOverride: null,
       weeklyReview: null,
+      coachHistory: [],
       aiFeedback: [],
-      membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, orders: [] },
+      membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, aiQuota: 20, usedAi: 0, expiresAt: null, orders: [], refunds: [] },
       favorites: [],
       jobProfile: null,
       jobFavorites: [],
@@ -206,7 +319,12 @@ export const useProfileStore = create<ProfileState>()(
       essayGrades: {},
       essayAbilities: [],
       postponedTasks: {},
-      notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, window: "20:00" },
+      taskAdjustments: [],
+      watchlist: [],
+      notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, review: true, progress: true, window: "20:00", proactive: true },
+      notificationState: { ignoredStreak: 0, dismissed: [] },
+      learningPreferences: { resources: [], mode: "混合", content: "文字", coachStyle: "温和", proactive: true },
+      privacy: { screenshotPolicy: "识别后保留", personalization: true },
       feedbacks: [],
       lastRevealDate: null,
       setAgreements: (agreements) =>
@@ -215,14 +333,25 @@ export const useProfileStore = create<ProfileState>()(
       setConditions: (conditions) =>
         set((s) => ({ profile: { ...s.profile, conditions } })),
       setNickname: (nickname) => set((s) => ({ profile: { ...s.profile, nickname } })),
-      addImport: (imp) => set((s) => ({ imports: [...s.imports, imp] })),
+      setProfile: (patch) => set((s) => ({ profile: { ...s.profile, ...patch } })),
+      addImport: (imp) => set((s) => {
+        const rest = s.imports.filter((existing) => existing.id !== imp.id);
+        return { imports: [...rest, imp] };
+      }),
       upsertImport: (imp) =>
         set((s) => {
           const rest = s.imports.filter((x) => x.id !== imp.id);
           return { imports: [...rest, imp] };
         }),
       setBaseline: (baseline) => set({ baseline }),
-      setDiagnosis: (diagnosis) => set({ diagnosis }),
+      setDiagnosis: (diagnosis) =>
+        set((s) => ({
+          diagnosis,
+          diagnosisHistory: [
+            { generatedAt: diagnosis.generatedAt, topModuleId: diagnosis.opportunities[0]?.moduleId ?? null, provisional: diagnosis.provisional },
+            ...s.diagnosisHistory.filter((h) => h.generatedAt !== diagnosis.generatedAt),
+          ].slice(0, 20),
+        })),
       setPrescription: (prescription) => set({ prescription }),
       addTaskResult: (r) => set((s) => ({ taskResults: [...s.taskResults, r] })),
       upsertSession: (session) =>
@@ -230,6 +359,8 @@ export const useProfileStore = create<ProfileState>()(
           const rest = s.sessions.filter((x) => x.id !== session.id);
           return { sessions: [...rest, session] };
         }),
+      addAttemptRecords: (records) => set((s) => ({ attemptRecords: [...s.attemptRecords, ...records].slice(-1000) })),
+      addProfileCorrection: (c) => set((s) => ({ profileCorrections: [...s.profileCorrections, { ...c, at: new Date().toISOString() }] })),
       addWrongEntries: (entries) =>
         set((s) => {
           const known = new Set(s.wrongBook.map((w) => w.questionId));
@@ -244,6 +375,7 @@ export const useProfileStore = create<ProfileState>()(
         })),
       setTodayMinutesOverride: (todayMinutesOverride) => set({ todayMinutesOverride }),
       setWeeklyReview: (weeklyReview) => set({ weeklyReview }),
+      addCoachTurns: (turns) => set((s) => ({ coachHistory: [...s.coachHistory, ...turns].slice(-40) })),
       addAiFeedback: (f) =>
         set((s) => ({
           aiFeedback: [
@@ -256,6 +388,8 @@ export const useProfileStore = create<ProfileState>()(
           membership: {
             ...s.membership,
             plan: ok ? plan : s.membership.plan,
+            aiQuota: ok ? 9999 : s.membership.aiQuota,
+            expiresAt: ok ? new Date(Date.now() + (plan === "pro-yearly" ? 365 : 30) * 86_400_000).toISOString() : s.membership.expiresAt,
             orders: [
               ...s.membership.orders,
               {
@@ -265,6 +399,18 @@ export const useProfileStore = create<ProfileState>()(
                 at: new Date().toISOString(),
               },
             ],
+          },
+        })),
+      restorePurchase: () =>
+        set((s) => {
+          const last = [...s.membership.orders].reverse().find((o) => o.status === "成功");
+          return last ? { membership: { ...s.membership, plan: last.plan, aiQuota: 9999, expiresAt: new Date(Date.now() + 30 * 86_400_000).toISOString() } } : {} as Partial<ProfileState>;
+        }),
+      requestRefund: (channel, reason) =>
+        set((s) => ({
+          membership: {
+            ...s.membership,
+            refunds: [...s.membership.refunds, { id: `refund-${Date.now()}`, channel, reason, status: "已提交", at: new Date().toISOString() }],
           },
         })),
       toggleFavorite: (questionId) =>
@@ -280,11 +426,11 @@ export const useProfileStore = create<ProfileState>()(
             ? s.jobFavorites.filter((f) => f !== qid)
             : [...s.jobFavorites, qid],
         })),
-      addEssaySubmission: (sub, q, grade) =>
+      addEssaySubmission: (sub, essayType, grade) =>
         set((s) => {
-          const prevAbility = s.essayAbilities.find((a) => a.type === q.type) ?? null;
-          const ability = updateEssayAbility(prevAbility, q, grade);
-          const rest = s.essayAbilities.filter((a) => a.type !== q.type);
+          const prevAbility = s.essayAbilities.find((a) => a.type === essayType) ?? null;
+          const ability = updateEssayAbility(prevAbility, essayType, grade);
+          const rest = s.essayAbilities.filter((a) => a.type !== essayType);
           return {
             essaySubmissions: [...s.essaySubmissions, sub],
             essayGrades: { ...s.essayGrades, [sub.id]: grade },
@@ -297,7 +443,17 @@ export const useProfileStore = create<ProfileState>()(
           if (list.includes(taskId)) return {} as Partial<ProfileState>;
           return { postponedTasks: { ...s.postponedTasks, [date]: [...list, taskId] } };
         }),
+      addTaskAdjustment: (a) => set((s) => ({ taskAdjustments: [...s.taskAdjustments, { ...a, at: new Date().toISOString() }] })),
+      toggleWatchlist: (questionId) => set((s) => ({ watchlist: s.watchlist.includes(questionId) ? s.watchlist.filter((id) => id !== questionId) : [...s.watchlist, questionId] })),
       setNotifications: (n) => set((s) => ({ notifications: { ...s.notifications, ...n } })),
+      dismissNotification: (id) => set((s) => ({
+        notificationState: {
+          ignoredStreak: s.notificationState.ignoredStreak + 1,
+          dismissed: [...s.notificationState.dismissed, id].slice(-200),
+        },
+      })),
+      setLearningPreferences: (p) => set((s) => ({ learningPreferences: { ...s.learningPreferences, ...p } })),
+      setPrivacy: (p) => set((s) => ({ privacy: { ...s.privacy, ...p } })),
       addFeedback: (f) =>
         set((s) => ({
           feedbacks: [
@@ -312,20 +468,63 @@ export const useProfileStore = create<ProfileState>()(
           imports: [],
           baseline: null,
           diagnosis: null,
+          diagnosisHistory: [],
           prescription: null,
           taskResults: [],
           sessions: [],
+          attemptRecords: [],
+          profileCorrections: [],
           wrongBook: [],
           todayMinutesOverride: null,
           weeklyReview: null,
+          coachHistory: [],
           aiFeedback: [],
-          membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, orders: [] },
+          membership: { plan: "free", diagnosisQuota: 3, usedDiagnosis: 0, aiQuota: 20, usedAi: 0, expiresAt: null, orders: [], refunds: [] },
+          favorites: [],
+          jobProfile: null,
+          jobFavorites: [],
+          essaySubmissions: [],
+          essayGrades: {},
+          essayAbilities: [],
+          postponedTasks: {},
+          taskAdjustments: [],
+          watchlist: [],
+          notifications: { taskReminder: true, diagnosisReady: true, examDeadline: true, review: true, progress: true, window: "20:00", proactive: true },
+      notificationState: { ignoredStreak: 0, dismissed: [] },
+          learningPreferences: { resources: [], mode: "混合", content: "文字", coachStyle: "温和", proactive: true },
+          privacy: { screenshotPolicy: "识别后保留", personalization: true },
+          feedbacks: [],
           lastRevealDate: null,
         }),
     }),
     {
       name: "jianan-profile",
-      storage: createJSONStorage(() => localStorage),
+      storage: createJSONStorage(() => profileStorage),
+      version: 2,
+      // V1 状态迁移：旧 localStorage 快照缺少画像/选岗/申论/额度等字段时，以当前默认值补齐。
+      merge: (persisted, current) => {
+        const old = (persisted ?? {}) as Partial<ProfileState>;
+        return {
+          ...current,
+          ...old,
+          profile: { ...current.profile, ...(old.profile ?? {}) },
+          membership: { ...current.membership, ...(old.membership ?? {}) },
+          notifications: { ...current.notifications, ...(old.notifications ?? {}) },
+          learningPreferences: { ...current.learningPreferences, ...(old.learningPreferences ?? {}) },
+          privacy: { ...current.privacy, ...(old.privacy ?? {}) },
+          favorites: old.favorites ?? current.favorites,
+          jobFavorites: old.jobFavorites ?? current.jobFavorites,
+          attemptRecords: old.attemptRecords ?? current.attemptRecords,
+          profileCorrections: old.profileCorrections ?? current.profileCorrections,
+          coachHistory: old.coachHistory ?? current.coachHistory,
+          essaySubmissions: old.essaySubmissions ?? current.essaySubmissions,
+          essayGrades: old.essayGrades ?? current.essayGrades,
+          essayAbilities: old.essayAbilities ?? current.essayAbilities,
+          diagnosisHistory: old.diagnosisHistory ?? current.diagnosisHistory,
+          taskAdjustments: old.taskAdjustments ?? current.taskAdjustments,
+          watchlist: old.watchlist ?? current.watchlist,
+        };
+      },
     },
   ),
 );

@@ -31,6 +31,7 @@ export default function OnboardingPage() {
   const [type, setType] = useState<ExamType | null>(null);
   const [examName, setExamName] = useState("");
   const [region, setRegion] = useState("");
+  const [targetJob, setTargetJob] = useState("");
   const [examDate, setExamDate] = useState("");
   const [targetTotal, setTargetTotal] = useState("");
   /** F0018 分模块目标（可选） */
@@ -81,6 +82,7 @@ export default function OnboardingPage() {
         type: type!,
         examName: examName.trim() || "批次待定",
         region: region.trim() || "地区待定",
+        targetJob: targetJob.trim() || undefined,
         examDate: examDate || defaultExamDate(),
         targetTotal: Number(targetTotal) > 0 ? Number(targetTotal) : 105,
         targetModules: Object.fromEntries(
@@ -142,6 +144,8 @@ export default function OnboardingPage() {
             setExamName,
             region,
             setRegion,
+            targetJob,
+            setTargetJob,
             examDate,
             setExamDate,
             targetTotal,
@@ -198,6 +202,8 @@ interface Fields {
   setExamName: (v: string) => void;
   region: string;
   setRegion: (v: string) => void;
+  targetJob: string;
+  setTargetJob: (v: string) => void;
   examDate: string;
   setExamDate: (v: string) => void;
   targetTotal: string;
@@ -271,6 +277,7 @@ function StepBody({ step, fields }: { step: number; fields: Fields }) {
           <div className="mt-xl space-y-lg">
             <Field label="考试批次" value={fields.examName} onChange={fields.setExamName} placeholder="如 2026 年国考" />
             <Field label="目标地区" value={fields.region} onChange={fields.setRegion} placeholder="如 广东省" />
+            <Field label="目标岗位或岗位组（可选）" value={fields.targetJob} onChange={fields.setTargetJob} placeholder="如 综合管理岗" />
           </div>
         </Question>
       );

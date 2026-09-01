@@ -8,17 +8,18 @@ import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
 import { TrendLine } from "@/components/charts/TrendLine";
 import { useProfileStore } from "@/lib/profile/store";
-import { ESSAY_SEED } from "@/lib/essay/bank";
 import { buildEssayReport } from "@/lib/essay/rewrite";
+import { usePublishedEssays } from "@/lib/essay/usePublished";
 
 export default function EssayReportPage() {
   const essaySubmissions = useProfileStore((s) => s.essaySubmissions);
   const essayGrades = useProfileStore((s) => s.essayGrades);
+  const { essays } = usePublishedEssays();
 
   const report = useMemo(() => {
-    const questions = Object.fromEntries(ESSAY_SEED.map((q) => [q.id, q]));
-    return buildEssayReport(essaySubmissions, essayGrades, questions);
-  }, [essaySubmissions, essayGrades]);
+    const typeById = Object.fromEntries(essays.map((item) => [item.question.id, item.question.type]));
+    return buildEssayReport(essaySubmissions, essayGrades, typeById);
+  }, [essaySubmissions, essayGrades, essays]);
 
   if (essaySubmissions.length === 0) {
     return (

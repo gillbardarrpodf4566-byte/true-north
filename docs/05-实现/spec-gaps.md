@@ -1,100 +1,28 @@
-# 见岸 · 规范缺口与实现补充记录
 
-> GOAL_PROMPT 硬约束：DESIGN.md 与功能清单 xlsx 不可修改。凡规范未定义而实现必须补齐的决策，全部记录在本文件，注明规范出处与补充理由。**这里的内容不是规范原文，是实现补充。**
+## GAP-12 · V1 主观评分、第三方与生产数据边界（2026-08-31）
 
-## GAP-1 · z-index 数值化
+- **申论评分**（F0204–F0215）：V1 使用可解释的确定性 Rubric（材料得分点/结构信号/规范词表）给出**参考分**、证据、置信度和优先三点；不声称替代真实阅卷。Rubric/材料/范例服务端配置入口已存在；真实语义模型可作为二级建议层接入，不能覆盖证据化采点结果。
+- **选岗数据**（F0259–F0275）：资格筛选为确定性规则，职位/历史数据为 SQLite 模拟种子 + 后台导入。每条数据展示来源与更新时间；真实发布须接官方公告与职位表同步，不把种子数据当官方实时信息。
+- **微信 / Apple / 支付**（F0004/F0005/F0311/F0315）：已实现账号绑定、恢复购买与退款交互/状态；第三方身份、支付和退款均为 mock adapter。接入真实 SDK 或渠道后替换接口适配器，保留状态与审计逻辑。
+- **分数预测 / 灰度**（F0192/F0193/F0359）：预测固定为模考历史的区间表达，灰度为稳定哈希规则；禁止展示上岸概率或精确承诺。
 
-- **规范出处**：DESIGN.md §5.4 只定义 Z0 Atmosphere / Z1 Content / Z2 Active Context / Z3 Functional Layer 四层语义，frontmatter 无 z-index token。
-- **冲突**：无数值则工程落地只能散落 magic number，违背 §22.2「不要散落 magic numbers」的意图。
-- **补充**：`zIndex = { atmosphere: 0, content: 10, activeContext: 20, functional: 30 }`，每层间隔 10 为后续插入留空间。业务代码禁止使用语义之外的数值（sheet/popover 等浮层一律 `functional`）。
-- **落地**：`src/design/tokens.ts#zIndex`（生成物）。
+## GAP-13 · 发布阻断项收口（2026-09-01 独立审计后）
 
-## GAP-2 · 中文字重钳制
+审计发现并已修复的项目，及其现存边界：
 
-- **规范出处**：frontmatter 字号表使用 620/590/580/560/450 等可变字重；字体栈 `PingFang SC, HarmonyOS Sans SC, Noto Sans SC` 中仅 HarmonyOS/Noto 有可变轴，PingFang SC 无；DESIGN.md §25 第 8 条自陈「中文字体可用字重必须最终确认」。
-- **补充**：中文渲染字重钳制到 400/500/600 三档：`≥580 → 600`；`500–579 → 500`；`<500 → 400`。Inter 数字栈保留原始值（620/590 等，可变字体下生效）。层级差异主要由字号与颜色承担，字重钳制不得作为加粗手段。
-- **落地**：`clampCjkFontWeight()`（生成物）。
+- **员工账号**：不再内置任何默认口令。仅当 staff 表为空且配置 `JIANAN_BOOTSTRAP_STAFF_JSON` 时创建；历史演示账号与公开演示 token 在启动时清除。登录按 staff_id 记账，15 分钟内 5 次失败锁定 15 分钟并返回 429。
+- **验证码**：`JIANAN_ALLOW_MOCK_SMS=1` 才回显（本地/E2E）；`JIANAN_SMS_PROVIDER_ENDPOINT` 存在时不回传；两者皆无则 503 拒绝发送。真实下发适配器仍待接入。
+- **注销**：删除账号先清除该账号的本地持久化命名空间，再切回访客空间，避免旧数据留在浏览器。
+- **灰度**：判定主体取自服务端 Bearer 身份，不接受客户端 `userKey`；`/api/jobs/match` 与 `/api/essay/grade` 在服务端强制，未开放主体返回 403。客户端失败关闭。
+- **申论内容**：题干/任务/字数/材料/Rubric/采分点/范例作为一个内容包版本化（草稿→发布→归档，可前后对比）。评分只在服务端按已发布版本执行；面向考生的接口不下发 Rubric 与采分点；提交与批改都记录所用版本号。
+- **职位数据**：支持 CSV/XLSX/JSON 表头映射预览、逐行校验与原子提交（校验不通过零写入，写入异常整体回滚，导入结果入台账）。资格规则（学历/政治面貌/基层年限/专业同义）版本化并回传所用版本号。自带种子标注 `origin=simulated` 且界面明示不可作为报名依据；导入拒绝未来日期。
+- **外部导入**：登录用户由服务端语义指纹台账判重，重复提交返回 `already_imported` 且不重复计入基线；访客在隔离的本地空间按稳定 ID 去重。截图证据不再保存会失效的 blob URL。
+- **AI 质量运营**：反馈先脱敏（手机号/邮箱/身份证/密钥/URL 令牌）再入候选池；模型与 Prompt 版本只在存在可验证调用上下文时展示，否则标记来源不可用且不可晋升回归用例。
+- **训练**：题级用时按实际计时记录，作答/跳题/暂停即时持久化并可恢复；未完成草稿不计入进展统计。
 
-## GAP-3 · gutter 冲突裁决
+## V1 完成状态
 
-- **规范出处**：frontmatter `spacing.gutter: 16px` 单值；§5.1 移动端 gutter 12px；§5.2 平板 gutter 16px。
-- **补充**：以 §5 正文为准，`gutter = { mobile: 12, tablet: 16, desktop: 16 }`；frontmatter 的单值 `gutter` 不进入实现。
-- **落地**：`src/design/tokens.ts#gutter`（生成物）。
-
-## GAP-4 · 夜间主题补全
-
-- **规范出处**：§17 只给 8 个色值（canvas/surface/surface-soft/主文字/body/muted/primary/dawn），缺其余 23 个 token；不补齐则主题切换无法落地。
-- **补充规则**：
-  1. §17 原值原样采用；
-  2. 表面色沿 `canvas → surface → surface-soft → surface-strong` 阶梯加深，保持 §5.4 的层级可感知；
-  3. 语义色（success/warning/error/info）保持色相、提高明度，正文对比目标 ≥ 4.5:1，soft 变体转为对应色相的低亮度深底；
-  4. `primary` 提亮为 `#72AAA6`（§17 原值）后，`on-primary` 反转为深色 `#0C1414`（白字对比不足）；
-  5. 不引入 §20 禁止的高饱和“赛博黑蓝”。
-- **落地**：`src/styles/tokens.css [data-theme="night"]` + `nightColors`（均为生成物）。
-- **待办**：全部深色对比度需真机 + axe 复核后才能标记「验收」。
-
-## GAP-5 · 会员与支付（MVP 5 条）的产品缺口
-
-- **规范出处**：功能清单「会员与支付」MVP 5 条（仅 1 条 P0）；DESIGN.md 无付费屏规格；实例稿仅一行入口。
-- **补充**：MVP 只实现「诊断次数余额展示 + 消耗计数」（P0），购买/续费/退款三条 P1 以 mock 支付适配器实现流程占位，不接真实支付渠道。价格与权益页在 V1 前需产品补充规格后另行实现。
-
-## GAP-6 · 登录注册：mock 短信通道 + SQLite（2026-08-31 已补齐实现）
-
-- **规范出处**：F0003 短信验证码登录（P0）、F0013 倒计时与重发保护、F0014 异常登录恢复路径。
-- **实现**（2026-08-31，此前为纯本机模式）：Node 内建 `node:sqlite`（零原生依赖）建库 `data/jianan.db`（gitignore），首启建表并写入模拟数据（3 个种子用户 + 演示 token `demo-token-13800000001`）。接口：
-  - `POST /api/auth/sms/send`——60s 重发冷却 + 每小时 5 条限流（真实限流逻辑）；mock 短信通道把验证码直接放响应 `mock.code` 回显在页面，**接短信服务商后删除该字段即可**。
-  - `POST /api/auth/sms/verify`——校验、自动建档、签发 30 天 token；失败返回结构化 `{reason: expired|wrong|locked|no_code, canResendIn, message}`（F0014 恢复路径）；错误 5 次锁定 15 分钟。
-  - `GET /api/auth/me`（Bearer）、`POST /api/auth/logout`。
-  - 前端 `/login`（冷却倒计时/失败原因/恢复入口）+ 根路由品牌启动页（F0001，§8.6：wordmark 短促进场、>600ms 才出 skeleton、就绪直进目标页）。
-- 服务端规则单测 9 个（`src/lib/server/sms.test.ts`）；E2E `tests/e2e/auth.spec.ts` 3 例。
-
-## GAP-7 · 权限授权（2026-08-31 已补齐实现）
-
-- **规范出处**：F0008 通知权限、F0009 相册权限（授权流程需「说明→选择/授权→处理→结果确认→审计」）。
-- **实现**：`POST/GET /api/permissions` 授权记录入库（`user_permissions` 表，留痕审计）；`/me` 提供通知权限开关（浏览器 `Notification.requestPermission()` + 入库 + 拒绝后的恢复指引）；`/import` 首次上传前的相册/文件授权门（用途说明三条款，拒绝只能手工录入）。Web 端无系统级相册权限，此门为显式授权确认——原生壳阶段替换为真实系统权限。
-- **同批修正**：E2E `cl01/02/03/07` 的建档 helper 补一步「授权并继续」，与真实用户流程一致。
-
-## GAP-8 · 提分机会排序的量化模型
-
-- **规范出处**：AI提分诊断（F0087/F0088/F0092）的核心业务规则原文为「最弱项不等于最高优先级；综合潜在收益、考试相关性、可训练性、时间成本和置信度」，**没有给出算式**。C04 的定位是「回答下一单位时间投在哪里最值」。
-- **补充模型**（`src/lib/diagnosis/engine.ts`）：
-
-  ```
-  priorityScore = (estimatedGain / estimatedHours)      // 单位时间预期收益
-                × trainability[kind]                     // 可训练性
-                × confidenceDiscount[confidence]         // 置信折扣
-                × (moduleFullScore / totalFullScore + 0.6) // 考试相关性加权
-  ```
-
-  - `estimatedGain`：准确率缺口 × 模块满分；速度型按「压回阈值后省下的时间比例 × 模块满分 × 0.35」折算，取两者较大值。
-  - `estimatedHours`：`estimatedGain × hoursPerPoint`，其中速度 1.5、准确率 2.5、概念补基础 6。
-  - `trainability`：速度 1.0 / 准确率 0.7 / 概念补基础 0.35 —— 速度问题靠方法与节奏短周期可验证，概念缺口短期产出比低。
-  - `confidenceDiscount`：高 1.0 / 中 0.85 / 低 0.6，样本不足时压低排序分，避免噪声驱动处方。
-  - 速度阈值（秒/题）：言语 55 / 判断 70 / 数量 110 / 资料 90 / 常识 30。
-  - 收益 < 0.5 分的机会不占用今日焦点。
-
-- **性质**：这些常量是**首版可运行基线**，不是经验证的教学参数。上线后需用真实训练结果做校准（对应功能清单 C18 处方效果实验、CL-10 AI 质量闭环）。任何调参都要同步本节。
-- **验证**：`src/lib/diagnosis/engine.test.ts` 锁定关键行为——最弱项（数量关系 30%）不得排在速度机会（资料分析 82%/120 秒）之前；低样本必须降级为候选；每个机会必须带事实与推断两类证据及失效条件。
-
-## GAP-9 · 每题时间预算
-
-- **规范出处**：F0105 任务分解、F0113 预计时长要求把目标拆成可完成训练单元并给出耗时，未给每题分钟数。
-- **补充**（`src/lib/prescription/engine.ts`）：言语 0.9 / 判断 1.2 / 数量 1.8 / 资料 1.5 / 常识 0.5 分钟每题；单任务时长钳制在 10–45 分钟，首项占预算 60%、后续各 30%，余量 ≥10 分钟时补一项 15 分钟错题复盘。
-
-## GAP-10 · 管理后台与 AI 运营台（2026-08-31 已服务端化）
-
-- **规范出处**：功能清单用户查询（F0335）、RBAC（F0364）、审计（F0365）、Provider/路由/版本管理（F0366–F0368）等后台能力。
-- **实现**（2026-08-31，此前为 localStorage 单机 mock）：
-  - **员工账号体系**：`staff` 表（scrypt 密码哈希 + 角色）与 `staff_tokens`；`/admin-login` 员工登录，与考生登录完全独立。种子员工（模拟数据）：`ops01/Ops@123456`（运营）、`teacher01/Teach@123456`（教研）、`support01/Support@123456`（客服）、`aiops01/Aiops@123456`（AI运营）、`boss/Boss@123456`（管理员）。
-  - **RBAC 强校验在服务端**（F0364）：能力矩阵定义于 `src/lib/server/admin.ts`（bank/users/tickets/config/audit/aiops 读写分离），每个 `/api/admin/*` 路由按 capability 校验，越权返回 403 并写入审计；前端仅按角色隐藏写操作。
-  - **审计只增日志**（F0365）：题库状态变更、配置变更、评测执行、越权尝试全部落 `audit_log` 表，清浏览器数据不可删除。
-  - **数据共享**：题库状态（`question_status`，下线题经 `/api/questions/disabled` 对外、组卷真实过滤）、自建题（`questions_custom`）、工单（`tickets`，用户反馈经 `POST /api/feedback` 入库）、考试/套餐（`exams`/`plans`）、AI 配置（`ai_config`）、评测历史（`eval_runs`）全部迁服务端。
-  - **评测服务端执行**：`POST /api/admin/aiops/eval` 在服务器真实跑 parser/诊断用例（对抗样本真实触发解析失败），结果与门禁判定入库。
-- **仍然保留的边界**：Provider 仍是 MockAiGateway（无真实模型调用）；员工登录无验证码/找回（演示级）；管理端无操作并发控制（单团队规模够用）。
-
-## GAP-11 · 测试钩子与账号类条目的 MVP 状态
-
-- 训练页选项带 `data-correct` 属性（MVP 测试钩子，CL-03 E2E 依赖），转生产前需经构建开关关闭。
-- MVP 171 条已于 2026-08-31 全部完成（GAP-6/7 的 6 条由 SQLite + mock 短信通道补齐）；全量 388 条中 V1+ 的 217 条不在 MVP 范围。见 `feature-ledger.md`。
-
-
+- V1 155 / 155 条功能范围已实现；实现证据见 `v1-feature-map.md`，全量台账见 `feature-ledger.md`。
+- 验证证据：`pnpm check`（单测 165 项）+ `pnpm build` + `pnpm audit --prod`（无已知漏洞）+ 串行 E2E 24/24。
+- 仍为 mock/待接入：AI 模型推理、真实短信下发、第三方登录 SDK、支付与退款渠道、官方职位表同步。
+- V2 / V3 的 62 条仍是未来路线图，不应被 V1 的“完成”状态覆盖。

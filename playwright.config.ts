@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { E2E_STAFF_BOOTSTRAP_JSON } from "./tests/e2e/fixtures/staff";
 
 /** E2E 跑生产构建（pnpm build 产物），比 dev server 启动快且更接近真实。 */
 export default defineConfig({
@@ -16,6 +17,12 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
     command: "npx next start -p 3457 -H 127.0.0.1",
+    env: {
+      ...process.env,
+      JIANAN_ALLOW_MOCK_OAUTH: "1",
+      JIANAN_ALLOW_MOCK_SMS: "1",
+      JIANAN_BOOTSTRAP_STAFF_JSON: E2E_STAFF_BOOTSTRAP_JSON,
+    },
     url: "http://127.0.0.1:3457/onboarding",
     reuseExistingServer: false,
     timeout: 120_000,

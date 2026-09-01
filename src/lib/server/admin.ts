@@ -8,7 +8,7 @@
  *   admin     ：全部读写
  */
 import { randomBytes, scryptSync } from "node:crypto";
-import { getDb, type StaffRole } from "./db";
+import { getDb, revokeUserTokens, type StaffRole } from "./db";
 
 export interface StaffRow {
   id: number;
@@ -19,10 +19,60 @@ export interface StaffRow {
 
 // ---------- 登录与 token ----------
 
+/** 登录节流策略：15 分钟窗口内 5 次失败即锁定 15 分钟（按 staff_id 记账，不信任客户端头）。 */
+const LOGIN_WINDOW_MS = 15 * 60_000;
+const LOGIN_MAX_FAILURES = 5;
+const LOGIN_LOCK_MS = 15 * 60_000;
+
+interface LoginAttemptRow {
+  failed_attempts: number;
+  window_started_at: string;
+  locked_until: string | null;
+}
+
+function loginAttemptRow(staffId: number): LoginAttemptRow | undefined {
+  return getDb()
+    .prepare("SELECT failed_attempts, window_started_at, locked_until FROM staff_login_attempts WHERE staff_id = ?")
+    .get(staffId) as LoginAttemptRow | undefined;
+}
+
+export function staffLoginRetryAfter(staffId: number, now = new Date()): number | null {
+  const row = loginAttemptRow(staffId);
+  if (!row?.locked_until) return null;
+  const remainingMs = new Date(row.locked_until).getTime() - now.getTime();
+  return remainingMs > 0 ? Math.ceil(remainingMs / 1000) : null;
+}
+
+export function recordFailedStaffLogin(staffId: number, now = new Date()): number | null {
+  const row = loginAttemptRow(staffId);
+  const windowActive = row != null && now.getTime() - new Date(row.window_started_at).getTime() < LOGIN_WINDOW_MS;
+  const failedAttempts = windowActive ? row!.failed_attempts + 1 : 1;
+  const windowStartedAt = windowActive ? row!.window_started_at : now.toISOString();
+  const lockedUntil = failedAttempts >= LOGIN_MAX_FAILURES
+    ? new Date(now.getTime() + LOGIN_LOCK_MS).toISOString()
+    : null;
+  getDb()
+    .prepare(
+      `INSERT INTO staff_login_attempts (staff_id, failed_attempts, window_started_at, locked_until)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(staff_id) DO UPDATE SET
+         failed_attempts = excluded.failed_attempts,
+         window_started_at = excluded.window_started_at,
+         locked_until = excluded.locked_until`,
+    )
+    .run(staffId, failedAttempts, windowStartedAt, lockedUntil);
+  return lockedUntil ? Math.ceil(LOGIN_LOCK_MS / 1000) : null;
+}
+
+export function clearFailedStaffLogins(staffId: number): void {
+  getDb().prepare("DELETE FROM staff_login_attempts WHERE staff_id = ?").run(staffId);
+}
+
 export function verifyStaffLogin(
   username: string,
   password: string,
-): { ok: true; token: string; staff: StaffRow } | { ok: false; message: string } {
+  now = new Date(),
+): { ok: true; token: string; staff: StaffRow } | { ok: false; message: string; retryAfterSeconds?: number } {
   const row = getDb()
     .prepare("SELECT id, username, password_hash, salt, role, display_name FROM staff WHERE username = ?")
     .get(username) as
@@ -30,9 +80,20 @@ export function verifyStaffLogin(
     | undefined;
   // 用户名不存在也做一次哈希，避免时序差异暴露账号是否存在
   const hash = scryptSync(password, row?.salt ?? "decoy-salt", 32).toString("hex");
-  if (!row || row.password_hash !== hash) {
-    return { ok: false, message: "用户名或密码不正确。" };
+  if (row) {
+    const lockedFor = staffLoginRetryAfter(row.id, now);
+    if (lockedFor != null) {
+      return { ok: false, message: "尝试次数过多，账号已临时锁定。", retryAfterSeconds: lockedFor };
+    }
   }
+  if (!row || row.password_hash !== hash) {
+    // 未知用户名不落库，避免攻击者用任意用户名撑大表
+    const lockedFor = row ? recordFailedStaffLogin(row.id, now) : null;
+    return lockedFor != null
+      ? { ok: false, message: "尝试次数过多，账号已临时锁定。", retryAfterSeconds: lockedFor }
+      : { ok: false, message: "用户名或密码不正确。" };
+  }
+  clearFailedStaffLogins(row.id);
   const token = randomBytes(24).toString("hex");
   getDb()
     .prepare(
@@ -74,6 +135,9 @@ const CAPABILITIES: Record<string, StaffRole[]> = {
   "tickets:write": ["operations", "support", "admin"],
   "config:read": READ_ALL,
   "config:write": ["operations", "admin"],
+  "content:read": ["operations", "teaching", "aiops", "admin"],
+  "content:write": ["operations", "teaching", "admin"],
+  "flags:write": ["operations", "admin"],
   "audit:read": ["operations", "admin"],
   "aiops:read": ["aiops", "admin"],
   "aiops:write": ["aiops", "admin"],
@@ -174,6 +238,31 @@ export function listCustomQuestions(): Array<{ qid: string; payload: Record<stri
   }));
 }
 
+// ---------- 用户运营：状态/补偿（F0337/F0339） ----------
+
+export function getUserAdminState(userId: number): { status: string; risk_note: string | null; updated_at: string } {
+  const row = getDb().prepare("SELECT status, risk_note, updated_at FROM user_admin_state WHERE user_id = ?").get(userId) as { status: string; risk_note: string | null; updated_at: string } | undefined;
+  return row ?? { status: "正常", risk_note: null, updated_at: "" };
+}
+
+export function setUserAdminState(userId: number, status: "正常" | "封禁" | "风险标记", note: string, staff: StaffRow): void {
+  getDb().prepare(
+    "INSERT INTO user_admin_state (user_id, status, risk_note, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET status=excluded.status, risk_note=excluded.risk_note, updated_at=excluded.updated_at",
+  ).run(userId, status, note || null, new Date().toISOString());
+  if (status === "封禁") revokeUserTokens(userId);
+  audit(staff, `用户 #${userId} 状态 → ${status}${note ? `（${note}）` : ""}${status === "封禁" ? "；已撤销全部会话" : ""}`);
+}
+
+export function addCompensation(userId: number, kind: "时长" | "额度", amount: number, reason: string, staff: StaffRow): void {
+  getDb().prepare("INSERT INTO user_compensations (user_id, kind, amount, reason, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(userId, kind, amount, reason, staff.username, new Date().toISOString());
+  audit(staff, `用户 #${userId} 补偿${kind} ${amount}${kind === "时长" ? "天" : "次"}（${reason}）`);
+}
+
+export function listCompensations(userId: number): Array<{ kind: string; amount: number; reason: string; created_by: string; created_at: string }> {
+  return getDb().prepare("SELECT kind, amount, reason, created_by, created_at FROM user_compensations WHERE user_id = ? ORDER BY id DESC").all(userId) as unknown as Array<{ kind: string; amount: number; reason: string; created_by: string; created_at: string }>;
+}
+
 // ---------- 工单 / 考试 / 套餐 / 用户反馈 ----------
 
 export interface Ticket {
@@ -197,12 +286,13 @@ export function createTicket(input: {
   type: string;
   text: string;
   hasScreenshot: boolean;
-}): void {
-  getDb()
+}): number {
+  const result = getDb()
     .prepare(
       "INSERT INTO tickets (category, type, text, has_screenshot, status, created_at) VALUES (?, ?, ?, ?, '待处理', ?)",
     )
     .run(input.category, input.type, input.text, input.hasScreenshot ? 1 : 0, new Date().toISOString());
+  return Number(result.lastInsertRowid);
 }
 
 export function setTicketStatus(id: number, status: string, staff: StaffRow): void {
@@ -291,34 +381,85 @@ export function upsertPositions(
   );
   rows.forEach((r, i) => {
     const get = (k: string): string => String(r[k] ?? "").trim();
-    for (const key of ["id", "name", "department", "region", "minEducation", "majorCategories"]) {
-      if (get(key) === "") problems.push(`第 ${i + 1} 条缺少 ${key}`);
+    const rowProblems: string[] = [];
+    // F0354：来源/文件/更新时间是职位可信度的硬字段，不允许补造默认值。
+    for (const key of ["id", "name", "department", "region", "unitLevel", "minEducation", "majorCategories", "sourceName", "sourceFile", "sourceUpdatedAt"]) {
+      const value = r[key];
+      const emptyArray = Array.isArray(value) && value.length === 0;
+      if (get(key) === "" || emptyArray) rowProblems.push(`第 ${i + 1} 条缺少 ${key}`);
     }
-    if (problems.length > 0) return;
-    const qid = get("id");
+    const recruiting = Number(r.recruiting);
+    if (!Number.isInteger(recruiting) || recruiting <= 0) rowProblems.push(`第 ${i + 1} 条 recruiting 必须为正整数`);
+    const updatedAt = get("sourceUpdatedAt");
+    if (updatedAt && !/^\d{4}-\d{2}-\d{2}$/.test(updatedAt)) rowProblems.push(`第 ${i + 1} 条 sourceUpdatedAt 必须为 YYYY-MM-DD`);
+    // 来源新鲜度不能指向未来，否则会把过期数据伪装成最新公告。
+    else if (updatedAt && updatedAt > new Date().toISOString().slice(0, 10)) rowProblems.push(`第 ${i + 1} 条 sourceUpdatedAt 不能晚于今天`);
+    const categories = Array.isArray(r.majorCategories)
+      ? r.majorCategories.map(String).filter(Boolean)
+      : get("majorCategories").split(/[、,，]/).filter(Boolean);
+    if (categories.length === 0) rowProblems.push(`第 ${i + 1} 条 majorCategories 不能为空`);
+    if (rowProblems.length > 0) {
+      problems.push(...rowProblems);
+      return;
+    }
     ins.run({
-      qid,
+      qid: get("id"),
       name: get("name"),
       department: get("department"),
-      region: get("region") || "待定",
-      unit_level: get("unitLevel") || "待定",
-      recruiting: Number(r.recruiting) || 1,
+      region: get("region"),
+      unit_level: get("unitLevel"),
+      recruiting,
       min_education: get("minEducation"),
-      major_categories: JSON.stringify(
-        Array.isArray(r.majorCategories) ? r.majorCategories.map(String) : get("majorCategories").split(/[、,，]/).filter(Boolean),
-      ),
+      major_categories: JSON.stringify(categories),
       political_requirement: get("politicalRequirement") || "群众",
       requires_grassroots: r.requiresGrassroots === true || get("requiresGrassroots") === "true" ? 1 : 0,
       fresh_only: r.freshOnly === true || get("freshOnly") === "true" ? 1 : 0,
       history: JSON.stringify(Array.isArray(r.history) ? r.history : []),
-      source_name: get("sourceName") || "未标注来源",
-      source_file: get("sourceFile") || "unknown",
-      source_updated_at: get("sourceUpdatedAt") || new Date().toISOString().slice(0, 10),
+      source_name: get("sourceName"),
+      source_file: get("sourceFile"),
+      source_updated_at: updatedAt,
     });
     inserted += 1;
   });
   audit(staff, `职位表导入：成功 ${inserted} 条，失败 ${problems.length} 条`);
   return { inserted, problems };
+}
+
+export function recordPositionImportRun(input: {
+  status: "success" | "rejected";
+  sourceName: string;
+  sourceFile: string;
+  sourceUpdatedAt: string;
+  format: string;
+  sheetName?: string | null;
+  mapping: Record<string, unknown>;
+  totalRows: number;
+  importedRows: number;
+  errors: unknown[];
+  staff: StaffRow;
+}): void {
+  getDb().prepare(
+    `INSERT INTO position_import_runs
+     (status, source_name, source_file, source_updated_at, format, sheet_name, mapping_json, total_rows, imported_rows, errors_json, actor, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    input.status,
+    input.sourceName,
+    input.sourceFile,
+    input.sourceUpdatedAt,
+    input.format,
+    input.sheetName ?? null,
+    JSON.stringify(input.mapping),
+    input.totalRows,
+    input.importedRows,
+    JSON.stringify(input.errors),
+    input.staff.display_name,
+    new Date().toISOString(),
+  );
+}
+
+export function listPositionImportRuns(): Array<Record<string, unknown>> {
+  return getDb().prepare("SELECT * FROM position_import_runs ORDER BY id DESC LIMIT 100").all() as unknown as Array<Record<string, unknown>>;
 }
 
 export function listExamNodes(): Array<{ id: number; exam_name: string; kind: string; date: string }> {

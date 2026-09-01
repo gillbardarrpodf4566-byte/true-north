@@ -75,7 +75,7 @@ export default function AdminLoginPage() {
       </Card>
 
       <p className="mt-lg text-caption text-muted-soft">
-        演示账号：ops01 / Ops@123456（运营）· support01 / Support@123456（客服）· aiops01 / Aiops@123456（AI运营）· boss / Boss@123456（管理员）
+        账号由系统管理员安全配发；本页不提供自助注册，也不展示任何默认口令。
       </p>
     </main>
   );

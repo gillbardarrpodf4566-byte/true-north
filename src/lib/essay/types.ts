@@ -56,6 +56,10 @@ export interface EssayQuestion {
 export interface EssaySubmission {
   id: string;
   questionId: string;
+  /** 发布内容版本；离线种子回退时为 0。历史报告必须以此解释评分依据。 */
+  contentRevision?: number;
+  questionType?: EssayType;
+  questionTitle?: string;
   text: string;
   submittedAt: string;
   /** 重写轮次：0=首作，1+=重写（F0216） */
@@ -81,6 +85,8 @@ export interface MissedPoint {
 
 export interface EssayGrade {
   submissionId: string;
+  /** 批改时的发布内容版本；缺省兼容旧本地记录。 */
+  contentRevision?: number;
   /** 参考分（0–满分），明确为「参考性质」（F0204） */
   score: number;
   dimensions: Array<{ id: "内容" | "结构" | "语言" | "规范"; score: number; full: number }>;

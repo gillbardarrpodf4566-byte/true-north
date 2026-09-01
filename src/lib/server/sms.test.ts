@@ -9,8 +9,9 @@ import { join } from "node:path";
  */
 const dir = mkdtempSync(join(tmpdir(), "jianan-sms-"));
 process.env.JIANAN_DB_PATH = join(dir, "test.db");
+process.env.JIANAN_ALLOW_MOCK_SMS = "1";
 
-const { sendSmsCode, verifySmsCode } = await import("./sms");
+const { sendSmsCode, verifySmsCode, smsChannel } = await import("./sms");
 const {
   getDb,
   createUser,
@@ -20,6 +21,9 @@ const {
   latestPermission,
   findUserByPhone,
   closeDb,
+  deleteUserData,
+  linkProvider,
+  listLinkedProviders,
 } = await import("./db");
 
 afterAll(() => {
@@ -28,6 +32,31 @@ afterAll(() => {
 });
 
 describe("短信验证码服务", () => {
+  it("未配置服务商且未开启 mock 通道时拒绝发送，且不回显验证码", () => {
+    delete process.env.JIANAN_ALLOW_MOCK_SMS;
+    try {
+      expect(smsChannel()).toBe("unavailable");
+      const blocked = sendSmsCode("13900000099", "login");
+      expect(blocked.ok).toBe(false);
+      expect(blocked.reason).toBe("channel_unavailable");
+      expect(blocked.mock).toBeUndefined();
+    } finally {
+      process.env.JIANAN_ALLOW_MOCK_SMS = "1";
+    }
+  });
+
+  it("配置了真实服务商时不回显验证码", () => {
+    process.env.JIANAN_SMS_PROVIDER_ENDPOINT = "https://sms.example.test/send";
+    try {
+      expect(smsChannel()).toBe("provider");
+      const sent = sendSmsCode("13900000098", "login");
+      expect(sent.ok).toBe(true);
+      expect(sent.mock).toBeUndefined();
+    } finally {
+      delete process.env.JIANAN_SMS_PROVIDER_ENDPOINT;
+    }
+  });
+
   it("发送成功且 60s 冷却内拒绝（F0013）", () => {
     const first = sendSmsCode("13900000001", "login");
     expect(first.ok).toBe(true);
@@ -119,6 +148,21 @@ describe("账号与权限（F0003/F0008/F0009）", () => {
     recordPermission(null, "notification", false);
     expect(latestPermission(null, "album")?.granted).toBe(true);
     expect(latestPermission(null, "notification")?.granted).toBe(false);
+  });
+
+  it("第三方绑定/解绑关联账号（V1 F0004/F0005）", () => {
+    const user = createUser("13900000008");
+    linkProvider(user.id, "wechat", "wx-subject-test");
+    expect(listLinkedProviders(user.id).map((x) => x.provider)).toContain("wechat");
+  });
+
+  it("账号注销服务端删除数据（V1 F0334）", () => {
+    const user = createUser("13900000009");
+    const { token } = issueToken(user.id);
+    recordPermission(user.id, "album", true);
+    deleteUserData(user.id);
+    expect(userFromToken(token)).toBeNull();
+    expect(findUserByPhone("13900000009")).toBeUndefined();
   });
 });
 

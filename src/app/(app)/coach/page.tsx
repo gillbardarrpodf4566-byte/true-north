@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { useProfileStore } from "@/lib/profile/store";
+import { computeAbilityDimensions } from "@/lib/ability/dimensions";
 import { duration } from "@/design/tokens";
 
 interface CoachReply {
@@ -35,12 +36,13 @@ interface Turn {
 
 function buildReply(q: string, data: CoachData): CoachReply {
   const t = q.toLowerCase();
+  const tone = data.style === "直接" ? "直接说结论：" : data.style === "苏格拉底式" ? "先一起确认一个问题：" : "我先温和地帮你梳理一下：";
 
   if (t.includes("为什么") && (t.includes("慢") || t.includes("速度") || t.includes("提不上去"))) {
     const m = data.topOpportunity;
     if (m && m.kind === "速度") {
       return {
-        conclusion: `你的${m.moduleId}更像是速度问题，而不是不会做。`,
+        conclusion: `${tone}你的${m.moduleId}更像是速度问题，而不是不会做。`,
         evidence: [
           `诊断依据：${m.headline}`,
           `样本：基于你最近 ${data.sampleNote}`,
@@ -55,7 +57,7 @@ function buildReply(q: string, data: CoachData): CoachReply {
     }
     if (m) {
       return {
-        conclusion: `当前最值得解决的其实是${m.moduleId}的${m.kind}问题。`,
+        conclusion: `${tone}当前最值得解决的其实是${m.moduleId}的${m.kind}问题。`,
         evidence: [m.headline, `样本：基于你最近 ${data.sampleNote}`],
         advice: m.kind === "准确率" ? "做题型专项，先到 75% 再谈速度。" : "这块属于基础缺口，先用方法卡补概念。",
         actions: [
@@ -79,7 +81,7 @@ function buildReply(q: string, data: CoachData): CoachReply {
 
   if (t.includes("模考") || t.includes("下降") || t.includes("判断")) {
     return {
-      conclusion: "单次回落不足以判断趋势改变，先验证再调整。",
+      conclusion: `${tone}单次回落不足以判断趋势改变，先验证再调整。`,
       evidence: [
         data.examCount >= 2
           ? `最近 ${data.examCount} 次模考都已计入基线，可以在进展页看逐场变化。`
@@ -100,6 +102,7 @@ function buildReply(q: string, data: CoachData): CoachReply {
     advice: "涉及具体数据的问题，我会带上你的训练证据再回答。",
     actions: [
       { label: "看今日焦点", href: "/today" },
+      { label: "生成相似练习", href: "/train/session/auto-混合" },
       { label: "看提分诊断", href: "/diagnosis" },
     ],
     uncertainty: "这个问题我还没有足够的上下文。",
@@ -112,10 +115,11 @@ interface CoachData {
   provisional: boolean;
   budget: number;
   examCount: number;
+  style: "直接" | "温和" | "苏格拉底式";
 }
 
 export default function CoachPage() {
-  const { profile, diagnosis, baseline, prescription, imports, membership, aiFeedback, addAiFeedback } =
+  const { profile, diagnosis, baseline, prescription, imports, membership, aiFeedback, addAiFeedback, learningPreferences, attemptRecords, wrongBook, coachHistory, addCoachTurns } =
     useProfileStore();
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState("");
@@ -126,20 +130,29 @@ export default function CoachPage() {
     provisional: diagnosis?.provisional ?? true,
     budget: prescription?.budgetMinutes ?? 60,
     examCount: imports.filter((im) => im.source !== "系统训练").length,
+    style: learningPreferences.coachStyle,
   };
 
+  const ability = useMemo(() => computeAbilityDimensions(attemptRecords), [attemptRecords]);
   const suggestions = useMemo(() => {
     const s = ["为什么我的资料分析速度提不上去？", "把今天计划压缩到 30 分钟。", "我连续两次模考都下降，先查什么？"];
+    if (wrongBook.length > 0) s.push("根据我的错因，下一步先修什么？");
     return s;
-  }, []);
+  }, [wrongBook.length]);
 
   const ask = (q: string): void => {
     if (q.trim() === "") return;
     const reply = buildReply(q, data);
+    const now = Date.now();
     setTurns((cur) => [
       ...cur,
-      { id: `u-${Date.now()}`, role: "user", text: q },
-      { id: `c-${Date.now()}`, role: "coach", reply, context: diagnosis?.headline ?? "" },
+      { id: `u-${now}`, role: "user", text: q },
+      { id: `c-${now}`, role: "coach", reply, context: diagnosis?.headline ?? "" },
+    ]);
+    // F0174：同一学习上下文的最近对话持久化；仅保留用户问题和教练结论，避免无限存储。
+    addCoachTurns([
+      { id: `u-${now}`, role: "user", text: q, context: diagnosis?.headline ?? "", at: new Date().toISOString() },
+      { id: `c-${now}`, role: "coach", text: reply.conclusion, context: diagnosis?.headline ?? "", at: new Date().toISOString() },
     ]);
     setInput("");
   };
@@ -166,6 +179,11 @@ export default function CoachPage() {
         ) : (
           <p className="mt-xs text-caption text-muted">还没有你的诊断数据，先去建立基线。</p>
         )}
+        {/* F0165：教练明确读取画像与历史弱点 */}
+        <p className="mt-xs text-caption text-muted">
+          画像上下文：已记录 {attemptRecords.length} 条作答轨迹 · 错题 {wrongBook.length} 题 ·
+          稳定性 {ability.stability.level ?? "样本不足"}
+        </p>
         {membership.plan === "free" ? (
           <p className="mt-xs text-caption text-muted-soft">
             免费版：本周诊断额度 {membership.diagnosisQuota - membership.usedDiagnosis}/
@@ -173,6 +191,14 @@ export default function CoachPage() {
           </p>
         ) : null}
       </Card>
+
+      {coachHistory.length > 0 ? (
+        <Card className="mt-lg" padding="dense">
+          <p className="text-label-md text-muted">续接上次对话（F0174）</p>
+          <p className="mt-xs text-body-sm text-body">上次：{coachHistory[coachHistory.length - 1]!.text}</p>
+          <p className="mt-xs text-caption text-muted">上下文：{coachHistory[coachHistory.length - 1]!.context || "无"}</p>
+        </Card>
+      ) : null}
 
       {turns.length === 0 ? (
         <section className="mt-xl">

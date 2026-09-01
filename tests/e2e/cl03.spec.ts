@@ -74,7 +74,7 @@ test("CL-03 训练闭环：作答→即时反馈→错因→总结→数据入�
   await page.getByRole("button", { name: "提交本题" }).click();
 
   // §8.13：错误反馈不 shake，正确答案保持可见（§7.10）
-  await expect(page.getByText("这次错了。先看差在哪")).toBeVisible();
+  await expect(page.getByText(/这次错了。用时/)).toBeVisible();
   await expect(page.locator('button[data-correct="1"]')).toBeVisible();
   await expect(page.getByText("解析")).toBeVisible();
 
@@ -100,6 +100,35 @@ test("CL-03 训练闭环：作答→即时反馈→错因→总结→数据入�
   await page.getByRole("button", { name: "认可这个错因" }).click();
   await expect(page.getByText("修复建议")).toBeVisible();
   await expect(page.getByRole("button", { name: /近邻题复测/ })).toBeVisible();
+});
+
+test("训练草稿：选择与反馈重载后保持，题级时间不会被会话平均化", async ({ page }) => {
+  await page.goto("/train/session/free-%E8%B5%84%E6%96%99%E5%88%86%E6%9E%90");
+  await page.getByRole("button", { name: "开始", exact: true }).click();
+  await page.getByRole("radio").last().click();
+  await page.waitForTimeout(1100);
+
+  // 页面隐藏时主动暂停；恢复后仍保留未提交的选择和本题累计时间。
+  await page.reload();
+  await expect(page.getByText("训练已暂停")).toBeVisible();
+  await page.getByRole("button", { name: "继续作答" }).click();
+  await expect(page.getByRole("radio").last()).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByText(/^本题 00:0[1-9]$/)).toBeVisible();
+
+  await page.getByRole("button", { name: "提交本题" }).click();
+  await expect(page.getByText(/这次错了。用时 00:0[1-9]/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("解析")).toBeVisible();
+  await expect(page.getByRole("button", { name: "下一题" })).toBeVisible();
+
+  await page.getByRole("button", { name: "下一题" }).click();
+  await expect(page.getByText(/^本题 00:00$/)).toBeVisible();
+  await page.getByRole("button", { name: "结束训练" }).click();
+  await expect(page.getByText("训练总结")).toBeVisible();
+
+  // 完成记录不携带草稿，训练中心不应再展示继续入口。
+  await page.goto("/train");
+  await expect(page.getByText("继续上次")).toHaveCount(0);
 });
 
 test("F0133 跳题：跳过不参与作答，可正常结束", async ({ page }) => {

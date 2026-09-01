@@ -7,13 +7,15 @@
  * F0271 对比（3–5 个）/ F0273 收藏 / F0274 报名节点提醒。
  * 职位不是商品卡：dense professional list + expandable evidence（§11.14）。
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore } from "@/lib/profile/store";
+import { getToken } from "@/lib/auth/client";
+import { useFeatureFlag } from "@/lib/ai/useFlags";
 import type { EducationLevel, JobMatch, PoliticalStatus } from "@/lib/jobs/types";
 
 interface MatchDTO {
@@ -24,6 +26,9 @@ interface MatchDTO {
   reasons: string[];
   competitionRatio: number | null;
   dataStale: boolean;
+  ruleRevision?: number;
+  preferenceScore?: number;
+  unavailableFactors?: string[];
 }
 
 const EDU: EducationLevel[] = ["大专", "本科", "硕士", "博士"];
@@ -37,11 +42,21 @@ export default function JobsPage() {
   const [political, setPolitical] = useState<PoliticalStatus>(jobProfile?.politicalStatus ?? "群众");
   const [years, setYears] = useState(String(jobProfile?.grassrootsYears ?? 0));
   const [region, setRegion] = useState(jobProfile?.preferences.region ?? "");
+  const [unitLevel, setUnitLevel] = useState(jobProfile?.preferences.unitLevel ?? "");
+  const [commute, setCommute] = useState<NonNullable<typeof jobProfile>['preferences']['commute']>(jobProfile?.preferences.commute ?? "同城可接受");
+  const [developmentPriorities, setDevelopmentPriorities] = useState<Array<"晋升通道" | "专业相关" | "稳定性" | "工作生活平衡">>(jobProfile?.preferences.developmentPriorities ?? []);
+  const [riskAppetite, setRiskAppetite] = useState<NonNullable<typeof jobProfile>['preferences']['riskAppetite']>(jobProfile?.preferences.riskAppetite ?? "均衡");
   const [matches, setMatches] = useState<MatchDTO[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [compare, setCompare] = useState<string[]>([]);
+  /** 服务端收藏真源（F0273），避免初始异步加载覆盖点击后的本地状态 */
+  const [favoriteIds, setFavoriteIds] = useState<string[]>(jobFavorites);
+  const favoriteRevision = useRef(0);
+  const { enabled: jobsEnabled, loading: flagsLoading } = useFeatureFlag("job_selection");
 
+  const token = getToken();
+  const signedIn = Boolean(token);
   const ready = major.trim() !== "";
   const reportable = useMemo(() => (matches ?? []).filter((m) => m.verdict === "可报"), [matches]);
 
@@ -56,7 +71,13 @@ export default function JobsPage() {
         isFreshGraduate: fresh,
         politicalStatus: political,
         grassrootsYears: Number(years) || 0,
-        region: region || undefined,
+        preferences: {
+          region: region || undefined,
+          unitLevel: unitLevel || undefined,
+          commute,
+          developmentPriorities,
+          riskAppetite,
+        },
       }),
     });
     const data = (await res.json()) as { ok: boolean; matches?: MatchDTO[]; message?: string };
@@ -71,7 +92,13 @@ export default function JobsPage() {
       isFreshGraduate: fresh,
       politicalStatus: political,
       grassrootsYears: Number(years) || 0,
-      preferences: { region: region || undefined },
+      preferences: {
+        region: region || undefined,
+        unitLevel: unitLevel || undefined,
+        commute,
+        developmentPriorities,
+        riskAppetite,
+      },
       updatedAt: new Date().toISOString(),
     });
     setMatches(data.matches ?? []);
@@ -88,11 +115,57 @@ export default function JobsPage() {
       .catch(() => undefined);
   }, []);
 
+  useEffect(() => {
+    if (!signedIn) {
+      setFavoriteIds(useProfileStore.getState().jobFavorites);
+      return;
+    }
+    const revisionAtStart = favoriteRevision.current;
+    void fetch("/api/jobs/favorites", { headers: token ? { authorization: `Bearer ${token}` } : undefined })
+      .then((r) => r.json())
+      .then((d: { ok: boolean; ids?: string[] }) => {
+        // 初始请求晚于用户点击返回时，绝不覆盖较新的操作。
+        if (!d.ok || revisionAtStart !== favoriteRevision.current) return;
+        const ids = d.ids ?? [];
+        setFavoriteIds(ids);
+        const current = useProfileStore.getState().jobFavorites;
+        for (const id of new Set([...current, ...ids])) {
+          if (current.includes(id) !== ids.includes(id)) toggleJobFavorite(id);
+        }
+      })
+      .catch(() => undefined);
+  }, [toggleJobFavorite, signedIn, token]);
+
   const toggleCompare = (id: string): void => {
     setCompare((c) =>
       c.includes(id) ? c.filter((x) => x !== id) : c.length >= 5 ? c : [...c, id],
     );
   };
+
+  const favorite = async (id: string): Promise<void> => {
+    favoriteRevision.current += 1;
+    const wasFav = favoriteIds.includes(id);
+    // 访客只在其独立 guest profile 中保存；登录后才同步到服务器。
+    setFavoriteIds((ids) => (wasFav ? ids.filter((x) => x !== id) : [...ids, id]));
+    if (jobFavorites.includes(id) === wasFav) toggleJobFavorite(id);
+    if (!signedIn) return;
+    const r = await fetch("/api/jobs/favorites", {
+      method: wasFav ? "DELETE" : "POST",
+      headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ qid: id }),
+    });
+    const data = await r.json().catch(() => ({ ok: false }));
+    if (r.ok && data.ok) {
+      setFavoriteIds(data.ids ?? []);
+    } else {
+      setFavoriteIds((ids) => (wasFav ? [...ids, id] : ids.filter((x) => x !== id)));
+      if (jobFavorites.includes(id) !== wasFav) toggleJobFavorite(id);
+    }
+  };
+
+  if (!flagsLoading && !jobsEnabled) {
+    return <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl"><h1 className="text-headline-xl text-ink">智能选岗</h1><div className="mt-xl"><EmptyState why="智能选岗正在灰度开放。" action="当前账号暂未进入试用分组；资格条件已保存，不会丢失。" /></div></main>;
+  }
 
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
@@ -163,6 +236,25 @@ export default function JobsPage() {
               />
             </label>
           </div>
+          <div className="grid grid-cols-2 gap-md">
+            <label className="block">
+              <span className="text-caption text-muted">意向单位层级</span>
+              <select value={unitLevel} onChange={(event) => setUnitLevel(event.target.value)} aria-label="意向单位层级" className="mt-xxs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink">
+                <option value="">不限</option><option value="国家级">国家级</option><option value="省级">省级</option><option value="市级">市级</option><option value="区县级">区县级</option><option value="乡镇街道">乡镇街道</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-caption text-muted">通勤偏好</span>
+              <select value={commute} onChange={(event) => setCommute(event.target.value as typeof commute)} aria-label="通勤偏好" className="mt-xxs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink">
+                <option>同区优先</option><option>同城可接受</option><option>可跨城</option>
+              </select>
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-caption text-muted">风险偏好</span>
+            <select value={riskAppetite} onChange={(event) => setRiskAppetite(event.target.value as typeof riskAppetite)} aria-label="风险偏好" className="mt-xxs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"><option>稳妥</option><option>均衡</option><option>冲刺</option></select>
+          </label>
+          <fieldset className="rounded-sm border border-border p-md"><legend className="px-xs text-caption text-muted">发展偏好（只对有官方标签的职位计分）</legend><div className="mt-xs grid grid-cols-2 gap-sm">{(["晋升通道", "专业相关", "稳定性", "工作生活平衡"] as const).map((item) => <label key={item} className="flex items-center gap-xs text-caption text-body"><input type="checkbox" aria-label={`development-preference-${["晋升通道", "专业相关", "稳定性", "工作生活平衡"].indexOf(item) + 1}`} checked={developmentPriorities.includes(item)} onChange={(event) => setDevelopmentPriorities((current) => event.target.checked ? [...new Set([...current, item])] : current.filter((value) => value !== item))} /><span>{item}</span></label>)}</div></fieldset>
           <label className="flex items-center gap-sm text-body-sm text-body">
             <input
               type="checkbox"
@@ -219,7 +311,7 @@ export default function JobsPage() {
               {reportable.map((m, i) => {
                 const pos = m.position;
                 const open = expanded === pos.id;
-                const fav = jobFavorites.includes(pos.id);
+                const fav = favoriteIds.includes(pos.id);
                 return (
                   <li key={pos.id} className="rounded-lg border border-border bg-surface p-lg">
                     <div className="flex items-start justify-between gap-md">
@@ -245,7 +337,7 @@ export default function JobsPage() {
                       <div className="flex shrink-0 flex-col items-end gap-xxs">
                         <button
                           type="button"
-                          onClick={() => toggleJobFavorite(pos.id)}
+                          onClick={() => void favorite(pos.id)}
                           aria-label={fav ? "取消收藏" : "收藏"}
                           className="text-caption text-primary"
                         >
@@ -278,7 +370,12 @@ export default function JobsPage() {
                     <p className={`mt-xs text-micro ${m.dataStale ? "text-warning" : "text-muted-soft"}`}>
                       数据来源：{pos.source.name} · 更新于 {pos.source.updatedAt}
                       {m.dataStale ? "（已超一年，请核对最新公告）" : ""}
+                      {m.ruleRevision ? ` · 资格规则 r${m.ruleRevision}` : ""}
                     </p>
+                    {pos.source.origin === "simulated" ? (
+                      <p className="mt-xxs text-caption text-warning">这是演示数据，不能作为报名依据；请以官方公告与后台导入的正式职位表为准。</p>
+                    ) : null}
+                    {m.unavailableFactors && m.unavailableFactors.length > 0 ? <p className="mt-xs text-caption text-muted">未参与排序：{m.unavailableFactors.join("、")}</p> : null}
 
                     {/* F0261 同义匹配人工复核提示 */}
                     {m.checks.some((c) => c.needsConfirm) ? (

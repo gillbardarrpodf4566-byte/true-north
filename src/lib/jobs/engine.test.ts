@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { checkRequirements, easyCandidates, matchPositions, SEED_POSITIONS } from "./engine";
+import { easyCandidates, matchPositions, SEED_POSITIONS } from "./engine";
+import { DEFAULT_RULE_SET } from "./rules";
 import type { JobSeekerProfile } from "./types";
 
 const profile: JobSeekerProfile = {
@@ -86,6 +87,33 @@ describe("软排序与分组（F0262–F0265/F0270）", () => {
       expect(m.position.source.name).toContain("官方");
       expect(m.position.source.updatedAt).not.toBe("");
     }
+  });
+
+  it("演示种子职位必须标注为模拟来源，且更新时间不在未来", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const position of SEED_POSITIONS) {
+      expect(position.source.origin).toBe("simulated");
+      expect(position.source.name).toContain("演示数据");
+      expect(position.source.updatedAt <= today).toBe(true);
+    }
+  });
+
+  it("发布的基层经历规则会影响资格判断，并把版本带回结果", () => {
+    const rules = { ...DEFAULT_RULE_SET, grassrootsYearsWhenRequired: 0 };
+    const results = matchPositions(SEED_POSITIONS, profile, { rules, ruleRevision: 7 });
+    const street = results.find((item) => item.position.id === "job-003")!;
+    expect(street.verdict).toBe("可报");
+    expect(street.ruleRevision).toBe(7);
+  });
+
+  it("意向地区与单位层级参与可解释排序，缺少通勤/发展来源时明确不计分", () => {
+    const results = matchPositions(SEED_POSITIONS, {
+      ...profile,
+      preferences: { region: "广州市", unitLevel: "市级", commute: "同区优先", developmentPriorities: ["稳定性"], riskAppetite: "稳妥" },
+    });
+    const tax = results.find((item) => item.position.id === "job-001")!;
+    expect(tax.preferenceScore).toBeGreaterThan(0);
+    expect(tax.unavailableFactors).toEqual(expect.arrayContaining([expect.stringContaining("通勤"), expect.stringContaining("发展偏好")]));
   });
 
   it("易上岸候选 = 竞争比最低前三（F0263）", () => {

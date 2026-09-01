@@ -2,17 +2,16 @@
 
 /**
  * 登录 — F0003 手机号验证码登录 / F0013 倒计时与重发保护 / F0014 异常登录恢复路径。
- * 短信为 mock 通道：验证码直接显示在发送成功提示里（生产接服务商后删除）。
+ * 只有显式启用的本地/E2E mock 通道才会回显验证码；生产由服务商下发。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { setToken } from "@/lib/auth/client";
 import { duration } from "@/design/tokens";
 
-type FailReason = "expired" | "wrong" | "locked" | "no_code" | "cooldown" | "rate_limited";
+type FailReason = "expired" | "wrong" | "locked" | "no_code" | "cooldown" | "rate_limited" | "channel_unavailable";
 
 interface FailState {
   reason: FailReason;
@@ -20,14 +19,13 @@ interface FailState {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
   const [stage, setStage] = useState<"phone" | "code">("phone");
   const [sending, setSending] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [fail, setFail] = useState<FailState | null>(null);
-  const [sentCode, setSentCode] = useState<string | null>(null); // mock 通道回显
+  const [sentCode, setSentCode] = useState<string | null>(null); // 仅 mock 通道会返回
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => () => {
@@ -98,14 +96,15 @@ export default function LoginPage() {
       ok: boolean;
       token?: string;
       isNew?: boolean;
+      user?: { id: number };
       message?: string;
       reason?: FailReason;
       canResendIn?: number;
     };
     if (data.ok && data.token) {
-      setToken(data.token);
-      // 新用户直接进建档引导；老用户进今日
-      router.replace(data.isNew ? "/onboarding" : "/today");
+      setToken(data.token, data.user?.id);
+      // 身份命名空间切换后完整重载，避免当前内存中的上一账号状态泄露到新账号。
+      window.location.assign(data.isNew ? "/onboarding" : "/today");
       return;
     }
     setFail({
@@ -116,6 +115,21 @@ export default function LoginPage() {
   };
 
   const canResendNow = countdown === 0 && stage === "code";
+
+  const providerLogin = async (provider: "wechat" | "apple"): Promise<void> => {
+    setFail(null);
+    const authorizationCode = provider === "wechat" ? "mock-wechat-login-code" : "mock-apple-login-code";
+    const res = await fetch("/api/auth/provider", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ action: "login", provider, authorizationCode }),
+    });
+    const data = (await res.json()) as { ok: boolean; token?: string; isNew?: boolean; user?: { id: number }; message?: string };
+    if (data.ok && data.token) {
+      setToken(data.token, data.user?.id);
+      window.location.assign(data.isNew ? "/onboarding" : "/today");
+    } else setFail({ reason: "wrong", message: data.message ?? "第三方登录失败，请改用手机号登录。" });
+  };
 
   return (
     <main className="mx-auto flex min-h-dvh max-w-[430px] flex-col px-margin-mobile pb-xl pt-xl">
@@ -226,6 +240,17 @@ export default function LoginPage() {
         )}
       </Card>
 
+      <div className="mt-lg grid grid-cols-2 gap-sm">
+        <Button variant="secondary" onClick={() => void providerLogin("wechat")}>
+          微信快捷登录
+        </Button>
+        <Button variant="secondary" onClick={() => void providerLogin("apple")}>
+          Apple 快捷登录
+        </Button>
+      </div>
+      <p className="mt-sm text-center text-caption text-muted-soft">
+        第三方登录仅用于身份识别；可在「我的」中查看或解除绑定。
+      </p>
       <p className="mt-lg text-caption text-muted-soft">
         登录即代表同意《用户协议》与《隐私政策》；协议原文在首次建档时完整展示。
       </p>

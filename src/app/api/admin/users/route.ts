@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { authStaff, listExams, listPlans } from "@/lib/server/admin";
+import { addCompensation, authStaff, audit, getUserAdminState, listCompensations, setUserAdminState } from "@/lib/server/admin";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** GET /api/admin/users — 用户概览（users:read；只展示账号层与授权计数，敏感原始内容默认不展示 F0336） */
+/** GET /api/admin/users — 用户概览（F0335/F0336，敏感原始内容默认不展示） */
 export async function GET(req: Request): Promise<NextResponse> {
   const authResult = authStaff(req, "users:read");
   if (!authResult.staff) {
@@ -32,8 +32,29 @@ export async function GET(req: Request): Promise<NextResponse> {
   }>;
   return NextResponse.json({
     ok: true,
-    rows: users,
-    membershipPlanCount: listPlans().length,
-    examCount: listExams().length,
+    rows: users.map((u) => ({ ...u, admin: getUserAdminState(u.id), compensations: listCompensations(u.id) })),
   });
+}
+
+/** PATCH /api/admin/users — F0337 封禁/解封/风险标记 + F0339 客服补偿（均需权限+审计） */
+export async function PATCH(req: Request): Promise<NextResponse> {
+  const a = authStaff(req, "users:read");
+  if (!a.staff) {
+    if (a.forbidden) audit(null, "越权尝试：无用户运营权限调用 PATCH /api/admin/users");
+    return NextResponse.json({ ok: false, message: a.forbidden ? "无权限" : "未登录" }, { status: a.forbidden ? 403 : 401 });
+  }
+  let body: { userId?: number; action?: string; status?: "正常" | "封禁" | "风险标记"; note?: string; kind?: "时长" | "额度"; amount?: number; reason?: string };
+  try { body = (await req.json()) as typeof body; } catch { return NextResponse.json({ ok: false, message: "请求格式错误" }, { status: 400 }); }
+  if (!body.userId || !body.action) return NextResponse.json({ ok: false, message: "userId/action 必填" }, { status: 400 });
+
+  const canOps = a.staff.role === "operations" || a.staff.role === "admin";
+  const canSupport = a.staff.role === "support" || canOps;
+  if (body.action === "status") {
+    if (!canOps || !body.status) return NextResponse.json({ ok: false, message: "当前角色无封禁/标记权限" }, { status: 403 });
+    setUserAdminState(body.userId, body.status, body.note ?? "", a.staff);
+  } else if (body.action === "compensate") {
+    if (!canSupport || !body.kind || !body.amount || !body.reason) return NextResponse.json({ ok: false, message: "当前角色无补偿权限或参数不完整" }, { status: 403 });
+    addCompensation(body.userId, body.kind, body.amount, body.reason, a.staff);
+  } else return NextResponse.json({ ok: false, message: "未知操作" }, { status: 400 });
+  return NextResponse.json({ ok: true });
 }

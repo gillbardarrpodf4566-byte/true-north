@@ -137,5 +137,35 @@ export class MockAiGateway implements AiGateway {
   }
 }
 
-/** 真实适配器接入点（MVP 不实现，接口即契约） */
-export const aiGateway: AiGateway = new MockAiGateway();
+/**
+ * F0388 降级策略的真实调用链：主解析器失败时不丢掉用户上传，
+ * 返回规则流程的“全部待确认”结果，由导入页让用户手工补录。
+ * 评测集仍直接调用 MockAiGateway，因此对抗样本可验证主模型确实失败。
+ */
+export class ResilientAiGateway implements AiGateway {
+  constructor(private readonly primary: AiGateway) {}
+
+  async parseScoreScreenshot(input: ScoreScreenshotInput): Promise<ParseResult> {
+    try {
+      return await this.primary.parseScoreScreenshot(input);
+    } catch {
+      const confidence: Record<string, FieldConfidence> = { total: "missing" };
+      const modules = MODULES.map((id) => {
+        confidence[`module:${id}:score`] = "missing";
+        confidence[`module:${id}:seconds`] = "missing";
+        return { id, score: null, questions: null, correct: null, secondsPerQuestion: null };
+      });
+      return {
+        platform: "规则降级",
+        examLabel: `待人工确认（${input.fileName}）`,
+        totalScore: null,
+        modules,
+        confidence,
+        sourceConfidence: "low",
+      };
+    }
+  }
+}
+
+/** 真实适配器接入点：主模型 → 降级到规则流程。 */
+export const aiGateway: AiGateway = new ResilientAiGateway(new MockAiGateway());

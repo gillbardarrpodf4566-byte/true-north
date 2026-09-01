@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { countWords, exampleOutlineFor, gradeEssay, splitSentences, weakestDimension } from "./grade";
+import { countWords, exampleOutlineFor, gradeEssay, isValidEssayRubric, splitSentences, weakestDimension } from "./grade";
 import { buildEssayReport, compareRewrite, updateEssayAbility } from "./rewrite";
 import { ESSAY_SEED, essayQuestionById } from "./bank";
 
@@ -94,10 +94,10 @@ describe("重写闭环与报告（F0216–F0226 / CL-05 step4–5）", () => {
 
   it("能力更新：滚动均值（F0218）", () => {
     const g1 = gradeEssay({ id: "a1", text: weakAnswer }, q);
-    const a1 = updateEssayAbility(null, q, g1);
+    const a1 = updateEssayAbility(null, q.type, g1);
     expect(a1.attempts).toBe(1);
     const g2 = gradeEssay({ id: "a2", text: goodAnswer }, q);
-    const a2 = updateEssayAbility(a1, q, g2);
+    const a2 = updateEssayAbility(a1, q.type, g2);
     expect(a2.attempts).toBe(2);
     const content = a2.dimensions.find((d) => d.id === "内容")!;
     expect(content.score).toBeGreaterThan(0.3);
@@ -111,11 +111,17 @@ describe("重写闭环与报告（F0216–F0226 / CL-05 step4–5）", () => {
     const grades = Object.fromEntries(
       subs.map((s) => [s.id, gradeEssay({ id: s.id, text: s.text }, q)]),
     );
-    const report = buildEssayReport(subs, grades, { [q.id]: q });
+    const report = buildEssayReport(subs, grades, { [q.id]: q.type });
     expect(report.trends.some((t) => t.points.length >= 2)).toBe(true);
     expect(report.frequentIssues.length).toBeGreaterThan(0);
     expect(report.nextWeekPlan.length).toBeGreaterThanOrEqual(1);
     expect(report.nextWeekPlan.length).toBeLessThanOrEqual(3);
+  });
+
+  it("后台 Rubric 必须完整校验，不能缺维度导致所有分为零（F0346）", () => {
+    expect(isValidEssayRubric(q.rubric)).toBe(true);
+    expect(isValidEssayRubric({ dimensions: [{ id: "内容", weight: 1 }] })).toBe(false);
+    expect(isValidEssayRubric({ ...q.rubric, dimensions: q.rubric.dimensions.map((d) => ({ ...d, weight: 0.2 })) })).toBe(false);
   });
 
   it("四题型题库齐备且含真题标识（F0198/F0199）", () => {

@@ -15,17 +15,22 @@ import { Chip } from "@/components/ui/Chip";
 import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore } from "@/lib/profile/store";
 import { essayQuestionById } from "@/lib/essay/bank";
-import { countWords, exampleOutlineFor, gradeEssay } from "@/lib/essay/grade";
+import { usePublishedEssays } from "@/lib/essay/usePublished";
+import { countWords } from "@/lib/essay/grade";
 import { compareRewrite } from "@/lib/essay/rewrite";
 import type { EssayGrade } from "@/lib/essay/types";
 
 export default function EssayWorkPage() {
   const params = useParams<{ id: string }>();
-  const q = essayQuestionById(params.id);
+  const { essays } = usePublishedEssays();
+  const published = essays.find((item) => item.question.id === params.id);
+  const q = published?.question ?? essayQuestionById(params.id);
   const { essaySubmissions, essayGrades, addEssaySubmission } = useProfileStore();
   const [text, setText] = useState("");
   const [showExample, setShowExample] = useState(false);
   const [round, setRound] = useState(0);
+  const [grading, setGrading] = useState(false);
+  const [rubricSource, setRubricSource] = useState<string | null>(null);
 
   const history = useMemo(
     () =>
@@ -57,16 +62,42 @@ export default function EssayWorkPage() {
   const overLimit = words > q.wordLimit * 1.1;
   const nearLimit = words > q.wordLimit * 0.9 && !overLimit;
 
-  const submit = (): void => {
+  const submit = async (): Promise<void> => {
     const id = `es-${Date.now()}`;
-    const grade = gradeEssay({ id, text }, q);
-    addEssaySubmission(
-      { id, questionId: q.id, text, submittedAt: new Date().toISOString(), round },
-      q,
-      grade,
-    );
-    setText("");
-    setRound((r) => r + 1);
+    setGrading(true);
+    try {
+      const res = await fetch("/api/essay/grade", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ questionId: q.id, text, submissionId: id }),
+      });
+      const data = (await res.json()) as { ok: boolean; grade?: EssayGrade; rubricSource?: string; contentRevision?: number };
+      // 评分只在服务端进行（采分点不下发到客户端）；服务端不可用时保留作答但不给出参考分。
+      if (!data.ok || !data.grade) {
+        setRubricSource("服务端批改不可用，已保存作答，稍后可重新提交批改。");
+        return;
+      }
+      const grade = data.grade;
+      addEssaySubmission(
+        {
+          id,
+          questionId: q.id,
+          contentRevision: grade.contentRevision ?? data.contentRevision ?? published?.revision ?? 0,
+          questionType: q.type,
+          questionTitle: q.title,
+          text,
+          submittedAt: new Date().toISOString(),
+          round,
+        },
+        q.type,
+        grade,
+      );
+      setRubricSource(data.rubricSource ?? `已发布内容包 r${grade.contentRevision ?? 0}`);
+      setText("");
+      setRound((r) => r + 1);
+    } finally {
+      setGrading(false);
+    }
   };
 
   return (
@@ -127,16 +158,26 @@ export default function EssayWorkPage() {
         </button>
       </div>
       {showExample ? (
-        <ul className="mt-sm list-disc space-y-xs pl-lg rounded-md bg-surface-soft p-md text-caption text-body">
-          {exampleOutlineFor(q).map((o) => (
-            <li key={o}>{o}</li>
-          ))}
-        </ul>
+        <div className="mt-sm rounded-md bg-surface-soft p-md text-caption text-body">
+          {(published?.examples ?? []).length === 0 ? (
+            <p>本题暂无已发布范例；范例由教研在后台内容包中维护。</p>
+          ) : (
+            <ul className="list-disc space-y-xs pl-lg">
+              {(published?.examples ?? []).map((example) => (
+                <li key={example.id}>
+                  <span className="text-muted">{example.kind}</span>：{example.title}
+                  <p className="mt-xxs whitespace-pre-line">{example.content}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       ) : null}
 
-      <Button className="mt-lg" fullWidth disabled={words < 20} onClick={submit}>
+      <Button className="mt-lg" fullWidth disabled={words < 20} loading={grading} onClick={() => void submit()}>
         提交批改
       </Button>
+      {rubricSource ? <p className="mt-xs text-center text-caption text-muted">本次评分使用：{rubricSource}</p> : null}
 
       {/* 批改结果（F0204–F0213） */}
       {latestGrade ? <GradeView grade={latestGrade} /> : null}

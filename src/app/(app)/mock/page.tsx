@@ -17,6 +17,7 @@ import { buildTrainingSet } from "@/lib/questions/seed";
 import type { Question } from "@/lib/questions/types";
 import { MODULES } from "@/lib/profile/types";
 import { computeBaseline } from "@/lib/baseline/compute";
+import { nextExamExperiment, suggestModuleOrder } from "@/lib/insights/v1";
 
 const EXAM_SECONDS = 12 * 60;
 const PER_MODULE = 2;
@@ -29,7 +30,13 @@ export default function MockPage() {
   const router = useRouter();
   const { imports, addImport, setBaseline, profile } = useProfileStore();
   const [phase, setPhase] = useState<"before" | "during" | "after">("before");
-  const paper = useMemo(() => buildPaper(), []);
+  /** F0181 阶段模考：短模考/整卷由当前阶段选择 */
+  const [examMode, setExamMode] = useState<"短模考" | "整卷">("整卷");
+  // 短模考真实缩短为前三模块各2题；整卷使用五模块×2题。
+  const paper = useMemo(() => {
+    const full = buildPaper();
+    return examMode === "短模考" ? full.filter((q) => ["言语理解", "判断推理", "资料分析"].includes(q.moduleId)) : full;
+  }, [examMode]);
   const [index, setIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [flagged, setFlagged] = useState<string[]>([]);
@@ -37,6 +44,8 @@ export default function MockPage() {
   const [remain, setRemain] = useState(EXAM_SECONDS);
   const moduleStart = useRef<number>(Date.now());
   const moduleSeconds = useRef<Record<string, number>>({});
+  /** F0184：模块进入顺序与切换轨迹 */
+  const [moduleOrder, setModuleOrder] = useState<string[]>([]);
   const [spent, setSpent] = useState<Record<string, number>>({});
 
   const q = paper[index];
@@ -80,7 +89,8 @@ export default function MockPage() {
       examLabel: "整卷模考",
       importedAt: new Date().toISOString(),
       totalScore,
-      modules: MODULES.map((m) => {
+      sourceRef: { kind: "external" as const, rawEvidence: JSON.stringify({ examMode, moduleOrder, spent }), parserVersion: "mock-exam-v1" },
+      modules: MODULES.filter((m) => paper.some((qq) => qq.moduleId === m)).map((m) => {
         const qs = paper.filter((qq) => qq.moduleId === m);
         const cor = qs.filter((qq) => answers[qq.id] === qq.answerIndex).length;
         return {
@@ -99,7 +109,7 @@ export default function MockPage() {
     addImport(imp);
     setBaseline(computeBaseline([...imports, imp]));
     setPhase("after");
-  }, [answers, paper, q, imports, addImport, setBaseline]);
+  }, [answers, paper, q, imports, addImport, setBaseline, examMode, moduleOrder, spent]);
 
   const finishRef = useRef(finish);
   finishRef.current = finish;
@@ -111,7 +121,10 @@ export default function MockPage() {
       moduleSeconds.current[prevModule] =
         (moduleSeconds.current[prevModule] ?? 0) + Math.round((Date.now() - moduleStart.current) / 1000);
     }
-    if (nextModule !== prevModule) moduleStart.current = Date.now();
+    if (nextModule !== prevModule) {
+      moduleStart.current = Date.now();
+      if (nextModule) setModuleOrder((order) => order.includes(nextModule) ? order : [...order, nextModule]);
+    }
     setIndex(i);
     setShowFlags(false);
   };
@@ -121,7 +134,12 @@ export default function MockPage() {
     return (
       <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
         <h1 className="text-headline-xl text-ink">整卷模考</h1>
-        <Card className="mt-lg">
+        <div className="mt-lg flex gap-sm" role="group" aria-label="模考模式">
+          {(["短模考", "整卷"] as const).map((m) => (
+            <button key={m} type="button" aria-pressed={examMode === m} onClick={() => setExamMode(m)} className={`rounded-full border px-md py-sm text-label-md ${examMode === m ? "border-primary bg-primary-faint text-primary-active" : "border-border bg-surface text-muted"}`}>{m}</button>
+          ))}
+        </div>
+        <Card className="mt-md">
           <dl className="space-y-xs text-body-sm text-body">
             <div className="flex gap-sm">
               <dt className="w-24 shrink-0 text-muted">结构</dt>
@@ -131,7 +149,7 @@ export default function MockPage() {
             </div>
             <div className="flex gap-sm">
               <dt className="w-24 shrink-0 text-muted">总时长</dt>
-              <dd>12 分钟（到时自动交卷）</dd>
+              <dd>{examMode === "短模考" ? "6 分钟（重点模块短测）" : "12 分钟（到时自动交卷）"}</dd>
             </div>
             <div className="flex gap-sm">
               <dt className="w-24 shrink-0 text-muted">考中规则</dt>
@@ -147,6 +165,8 @@ export default function MockPage() {
           fullWidth
           onClick={() => {
             moduleStart.current = Date.now();
+            setModuleOrder([paper[0]?.moduleId ?? ""]);
+            setRemain(examMode === "短模考" ? 6 * 60 : EXAM_SECONDS);
             setPhase("during");
           }}
         >
@@ -166,6 +186,15 @@ export default function MockPage() {
       .sort((a, b) => b.importedAt.localeCompare(a.importedAt));
     const prev = history[1];
     const delta = prev?.totalScore != null ? round1(totalScore - prev.totalScore) : null;
+
+    // F0195/F0196：基于本场效率生成下场模块顺序和时间预算；F0197 给一条可验证实验。
+    const pace = MODULES.filter((m) => paper.some((q) => q.moduleId === m)).map((m) => {
+      const qs = paper.filter((qq) => qq.moduleId === m);
+      const cor = qs.filter((qq) => answers[qq.id] === qq.answerIndex).length;
+      return { moduleId: m, secondsPerQuestion: Math.round((spent[m] ?? 0) / Math.max(qs.length, 1)), accuracy: cor / Math.max(qs.length, 1) };
+    });
+    const nextOrder = suggestModuleOrder(pace);
+    const experiment = nextExamExperiment(nextOrder, moduleOrder);
 
     // F0191 关键变化：只突出最重要的改善与退化（模块正确率对比上一场）
     const keyChange = ((): string | null => {
@@ -221,6 +250,15 @@ export default function MockPage() {
               );
             })}
           </ul>
+        </Card>
+
+        <Card className="mt-lg">
+          <p className="text-label-md text-muted">作答策略（F0184/F0189/F0195–F0197）</p>
+          <p className="mt-xs text-body-sm text-body">本场模块进入顺序：{moduleOrder.filter(Boolean).join(" → ") || "未记录"}</p>
+          <ul className="mt-sm space-y-xs text-caption text-body">
+            {nextOrder.map((s) => <li key={s.moduleId}>建议第 {s.suggestedOrder} 做 {s.moduleId} · 预算约 {s.suggestedMinutes} 分钟：{s.rationale}</li>)}
+          </ul>
+          {experiment ? <p className="mt-sm text-caption text-primary">下场策略实验：{experiment.hypothesis} 验证指标：{experiment.metric}。{experiment.nullResult}</p> : <p className="mt-sm text-caption text-muted">本场顺序与效率建议一致，下场可保持原策略。</p>}
         </Card>
 
         {keyChange ? (

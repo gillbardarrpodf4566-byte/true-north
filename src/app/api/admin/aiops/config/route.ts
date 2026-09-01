@@ -5,19 +5,20 @@ import {
   listEvalRuns,
   setAiConfig,
 } from "@/lib/server/admin";
+import { clusterFailures } from "@/lib/ai/quality";
+import { listAiFeedbackCandidates } from "@/lib/server/ai-feedback";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-/** GET /api/admin/aiops/config — AI 配置与评测历史（aiops:read） */
+/** GET /api/admin/aiops/config — AI 配置、评测历史、脱敏反馈候选（aiops:read）。 */
 export async function GET(req: Request): Promise<NextResponse> {
   const authResult = authStaff(req, "aiops:read");
   if (!authResult.staff) {
-    return NextResponse.json(
-      { ok: false, message: authResult.forbidden ? "无权限" : "未登录" },
-      { status: authResult.forbidden ? 403 : 401 },
-    );
+    return NextResponse.json({ ok: false, message: authResult.forbidden ? "无权限" : "未登录" }, { status: authResult.forbidden ? 403 : 401 });
   }
+  const candidates = listAiFeedbackCandidates();
+  const clustered = candidates.map((candidate) => ({ category: candidate.category, text: candidate.sanitizedExcerpt }));
   return NextResponse.json({
     ok: true,
     routing: getAiConfig("routing"),
@@ -25,6 +26,9 @@ export async function GET(req: Request): Promise<NextResponse> {
     promptVersions: getAiConfig("prompt_versions"),
     schemaVersions: getAiConfig("schema_versions"),
     evalRuns: listEvalRuns(),
+    feedbackClusters: clusterFailures(clustered),
+    // 只返回脱敏摘录；模型/Prompt 仅当数据库中有经验证 invocation 时才出现。
+    feedbackCandidates: candidates,
   });
 }
 
@@ -40,15 +44,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: false, message: "未登录" }, { status: 401 });
   }
   let body: { key?: string; value?: unknown };
-  try {
-    body = (await req.json()) as typeof body;
-  } catch {
-    return NextResponse.json({ ok: false, message: "请求格式错误" }, { status: 400 });
-  }
+  try { body = (await req.json()) as typeof body; } catch { return NextResponse.json({ ok: false, message: "请求格式错误" }, { status: 400 }); }
   const allowed = ["routing", "daily_budget", "prompt_versions", "schema_versions"];
-  if (!body.key || !allowed.includes(body.key)) {
-    return NextResponse.json({ ok: false, message: "未知配置项" }, { status: 400 });
-  }
+  if (!body.key || !allowed.includes(body.key)) return NextResponse.json({ ok: false, message: "未知配置项" }, { status: 400 });
   setAiConfig(body.key, body.value, authResult.staff);
   return NextResponse.json({ ok: true });
 }

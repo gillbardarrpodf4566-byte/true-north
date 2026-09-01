@@ -20,7 +20,7 @@ const BENEFITS: Array<{ name: string; free: string; pro: string }> = [
 ];
 
 export default function MembershipPage() {
-  const { membership, purchaseMembership } = useProfileStore();
+  const { membership, purchaseMembership, restorePurchase, requestRefund } = useProfileStore();
   const [order, setOrder] = useState<"idle" | "处理中" | "成功" | "失败">("idle");
   const [plan, setPlan] = useState<"pro-monthly" | "pro-yearly">("pro-monthly");
 
@@ -51,6 +51,11 @@ export default function MembershipPage() {
           本周诊断额度：{membership.plan === "free"
             ? `${membership.diagnosisQuota - membership.usedDiagnosis}/${membership.diagnosisQuota}`
             : "不限"}
+        </p>
+        {/* F0313 AI 额度 */}
+        <p className="mt-xs text-caption text-muted">
+          AI / 批改额度：{membership.plan === "free" ? `${Math.max(0, membership.aiQuota - membership.usedAi)}/${membership.aiQuota}` : "不限"}
+          {membership.expiresAt ? ` · 权益至 ${membership.expiresAt.slice(0, 10)}` : ""}
         </p>
       </Card>
 
@@ -135,6 +140,24 @@ export default function MembershipPage() {
           </p>
         </section>
       ) : null}
+
+      <section className="mt-xl space-y-md">
+        {/* F0311 恢复购买 */}
+        <Button variant="secondary" fullWidth onClick={restorePurchase}>
+          恢复历史订阅
+        </Button>
+        {/* F0315 退款入口：渠道规则与提交 */}
+        <details>
+          <summary className="cursor-pointer text-body-sm text-primary">退款规则与入口</summary>
+          <div className="mt-sm rounded-md bg-surface-soft p-md text-body-sm text-body">
+            <p>App Store / Apple 渠道：请在对应商店订阅管理中申请退款。</p>
+            <p className="mt-xs">微信渠道：可在此提交退款申请，客服将在 3 个工作日内处理。</p>
+            <Button className="mt-sm" variant="tertiary" onClick={() => requestRefund("微信", "用户主动申请退款")}>提交微信退款申请</Button>
+          </div>
+        </details>
+        {/* F0314 到期提醒 */}
+        {membership.expiresAt ? <p className="text-caption text-muted">到期前 7 天将提醒：续费不会丢失历史画像；不续费则高级诊断/批改额度回到免费版。</p> : null}
+      </section>
 
       {membership.orders.length > 0 ? (
         <section className="mt-xl">
