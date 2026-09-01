@@ -81,12 +81,17 @@ export default function TodayPage() {
   })();
   const reasonPlan = yesterdayAdjustment ? adjustPlanForReason(yesterdayAdjustment.reason) : null;
   const baseCap = Math.min(defaultBudget, preferenceCap);
-  const budget = todayMinutesOverride
-    ?? (reasonPlan?.action === "缩量"
-      ? Math.round(baseCap * 0.6)
-      : reasonPlan?.action === "重排"
-        ? Math.min(baseCap, 25)
-        : baseCap);
+  // 与 buildPrescription 的下限保持一致（最低 10 分钟）：否则页面算出的预算
+  // 会被引擎钳高，staleness 检查永远为真，导致处方无限重算。
+  const budget = Math.max(
+    10,
+    todayMinutesOverride
+      ?? (reasonPlan?.action === "缩量"
+        ? Math.round(baseCap * 0.6)
+        : reasonPlan?.action === "重排"
+          ? Math.min(baseCap, 25)
+          : baseCap),
+  );
 
   // 诊断与处方按需生成/刷新（CL-02 step1-2）
   useEffect(() => {

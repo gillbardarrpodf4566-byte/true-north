@@ -116,7 +116,9 @@ function open(): DatabaseSync {
       text TEXT NOT NULL,
       has_screenshot INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT '待处理',
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      -- F0320：内容纠错指向的题目，否则工单无法定位
+      target_ref TEXT
     );
     CREATE TABLE IF NOT EXISTS exams (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -287,9 +289,18 @@ function open(): DatabaseSync {
       created_at TEXT NOT NULL
     );
   `);
+  migrate(db);
   seedIfEmpty(db);
   globalThis.__jiananDb = db;
   return db;
+}
+
+/** 既有库的增量迁移：CREATE TABLE IF NOT EXISTS 不会为已存在的表补列。 */
+function migrate(db: DatabaseSync): void {
+  const columns = db.prepare("PRAGMA table_info(tickets)").all() as unknown as Array<{ name: string }>;
+  if (!columns.some((column) => column.name === "target_ref")) {
+    db.exec("ALTER TABLE tickets ADD COLUMN target_ref TEXT");
+  }
 }
 
 /** 模拟数据（需求：需要数据的在数据库中加入模拟数据） */
@@ -363,7 +374,11 @@ function seedIfEmpty(db: DatabaseSync): void {
       now,
     );
     ins.run("notices", JSON.stringify([{ id: "n1", title: "本周复盘已上线", body: "看看哪些投入真正有效。", status: "草稿" }]), "system", now);
-    ins.run("message_templates", JSON.stringify([{ id: "t1", kind: "学习", template: "你的{metric}最近有变化。" }]), "system", now);
+    // F0357：kind 必须与消息引擎实际消费的类型一致，否则模板永远不生效
+    ins.run("message_templates", JSON.stringify([
+      { id: "t1", kind: "复习到期", template: "「{knowledgePoint}」到复测时间了" },
+      { id: "t2", kind: "进步", template: "{metric}有稳定进步" },
+    ]), "system", now);
     ins.run("feature_flags", JSON.stringify([{ key: "essay_coach", rollout: "all", percent: 100 }, { key: "score_forecast", rollout: "percent", percent: 50 }]), "system", now);
     ins.run("rubric_calibrations", JSON.stringify([]), "system", now);
   }
@@ -652,6 +667,10 @@ export function deleteUserData(userId: number): void {
     db.prepare("DELETE FROM job_favorites WHERE user_key = ?").run(`user:${userId}`);
     db.prepare("DELETE FROM user_admin_state WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM user_compensations WHERE user_id = ?").run(userId);
+    // 外键约束未开启，权益行必须显式删除，否则注销后残留孤儿数据。
+    db.prepare("DELETE FROM user_entitlements WHERE user_id = ?").run(userId);
+    db.prepare("DELETE FROM external_import_batches WHERE owner_key = ?").run(`user:${userId}`);
+    db.prepare("DELETE FROM ai_invocations WHERE user_id = ?").run(userId);
     db.prepare("DELETE FROM users WHERE id = ?").run(userId);
     db.exec("COMMIT");
   } catch (e) {

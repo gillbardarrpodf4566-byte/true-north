@@ -73,7 +73,19 @@ export function executionAndTimePressure(
   return { execution, timePressure, evidence: evidence.slice(0, 5) };
 }
 
-/** F0279 错因趋势：按周统计各错因频次 */
+/** ISO 周键（YYYY-Www），用于按周而不是按天聚合。 */
+function isoWeekKey(iso: string): string {
+  const date = new Date(iso);
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  // ISO 8601：周四所在的年即该周的年份
+  const day = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((target.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+  return `${target.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+/** F0279 错因趋势：按 ISO 周统计各错因频次（此前误按天聚合）。 */
 export function errorCauseTrend(
   book: WrongBookEntry[],
 ): Array<{ week: string; cause: string; count: number }> {
@@ -81,7 +93,7 @@ export function errorCauseTrend(
   const map = new Map<string, number>();
   for (const w of book) {
     const cause = w.confirmedCause ?? w.suggested?.cause ?? "待确认";
-    const week = w.addedAt.slice(0, 10);
+    const week = isoWeekKey(w.addedAt);
     const key = `${week}｜${cause}`;
     map.set(key, (map.get(key) ?? 0) + 1);
   }

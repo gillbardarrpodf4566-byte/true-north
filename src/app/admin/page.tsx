@@ -314,7 +314,7 @@ function UsersTab() {
 }
 
 function TicketsTab({ canWrite }: { canWrite: boolean }) {
-  const [rows, setRows] = useState<Array<{ id: number; category: string; type: string; text: string; has_screenshot: number; status: string; created_at: string }>>([]);
+  const [rows, setRows] = useState<Array<{ id: number; category: string; type: string; text: string; has_screenshot: number; target_ref?: string | null; status: string; created_at: string }>>([]);
 
   const load = useCallback(async (): Promise<void> => {
     const d = await adminApi<{ rows: typeof rows }>("/api/admin/tickets");
@@ -355,6 +355,8 @@ function TicketsTab({ canWrite }: { canWrite: boolean }) {
               <p className="mt-xs text-caption text-muted-soft">
                 {t.type} · {new Date(t.created_at).toLocaleString("zh-CN")}
                 {t.has_screenshot === 1 ? " · 附截图" : ""}
+                {/* F0320：内容纠错工单显示指向的题目，便于定位 */}
+                {t.target_ref ? ` · 指向 ${t.target_ref}` : ""}
               </p>
               {canWrite && t.status !== "已处理" ? (
                 <Button className="mt-sm" variant="secondary" onClick={() => resolve(t.id)}>

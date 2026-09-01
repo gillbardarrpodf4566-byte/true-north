@@ -315,12 +315,14 @@ export function createTicket(input: {
   type: string;
   text: string;
   hasScreenshot: boolean;
+  /** F0320：内容纠错等工单指向的题目，供后台定位 */
+  targetRef?: string | null;
 }): number {
   const result = getDb()
     .prepare(
-      "INSERT INTO tickets (category, type, text, has_screenshot, status, created_at) VALUES (?, ?, ?, ?, '待处理', ?)",
+      "INSERT INTO tickets (category, type, text, has_screenshot, status, created_at, target_ref) VALUES (?, ?, ?, ?, '待处理', ?, ?)",
     )
-    .run(input.category, input.type, input.text, input.hasScreenshot ? 1 : 0, new Date().toISOString());
+    .run(input.category, input.type, input.text, input.hasScreenshot ? 1 : 0, new Date().toISOString(), input.targetRef ?? null);
   return Number(result.lastInsertRowid);
 }
 

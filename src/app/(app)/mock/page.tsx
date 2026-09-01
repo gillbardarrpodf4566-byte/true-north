@@ -29,7 +29,7 @@ function buildPaper(): Question[] {
 
 export default function MockPage() {
   const router = useRouter();
-  const { imports, addImport, setBaseline, profile, mockPlan, setMockPlan } = useProfileStore();
+  const { imports, addImport, setBaseline, profile, mockPlan, setMockPlan, clearMockExperiment } = useProfileStore();
   const [phase, setPhase] = useState<"before" | "during" | "after">("before");
   /** F0181 阶段模考：短模考/整卷由当前阶段选择 */
   const [examMode, setExamMode] = useState<"短模考" | "整卷">("整卷");
@@ -212,17 +212,23 @@ export default function MockPage() {
     const nextOrder = suggestModuleOrder(pace);
     const experiment = nextExamExperiment(nextOrder, moduleOrder);
 
-    // F0197：上一场记录的实验，本场用实际结果验证；不做则如实说明未执行
+    // F0197：上场假设的验证。当前站内模考按固定顺序出卷，用户无法自选模块顺序，
+    // 因此不能声称「已按假设执行」；跨模式（短模考/整卷）满分不同，分数也不可比。
+    // 这里只在可比时给出分数变化，并如实说明验证条件是否满足。
     const priorExperiment = mockPlan?.experiment ?? null;
+    // 卷面满分随模式变化（短模考 3 模块 / 整卷 5 模块），跨模式分数不可比
+    const fullPaperScore = round1([...new Set(paper.map((qq) => qq.moduleId))].reduce((sum, m) => sum + fullOf(m), 0));
+    const comparableMode = mockPlan?.examMode === examMode && mockPlan?.fullScore === fullPaperScore;
     const experimentOutcome = priorExperiment
       ? (() => {
-          const followed = priorExperiment.hypothesis.includes(moduleOrder.filter(Boolean)[0] ?? "\u0000");
-          const delta = priorExperiment.baselineScore != null ? round1(totalScore - priorExperiment.baselineScore) : null;
+          const delta = comparableMode && priorExperiment.baselineScore != null
+            ? round1(totalScore - priorExperiment.baselineScore)
+            : null;
+          if (!comparableMode) {
+            return { text: `上场假设「${priorExperiment.hypothesis}」暂未验证：本场为${examMode}，与记录时的模考模式不同，分数不可直接比较。` };
+          }
           return {
-            followed,
-            text: followed
-              ? `已按上场假设执行（${priorExperiment.metric}）：${delta == null ? "缺少可比基线" : delta > 0 ? `总分 +${delta}，假设成立` : delta < 0 ? `总分 ${delta}，假设不成立` : "总分持平，无法判定"}。`
-              : `上场假设未执行（本场顺序与建议不同），${priorExperiment.metric} 无法判定。`,
+            text: `上场假设「${priorExperiment.hypothesis}」：${delta == null ? "缺少可比基线，暂不判定" : delta > 0 ? `同模式下总分 +${delta}` : delta < 0 ? `同模式下总分 ${delta}` : "同模式下总分持平"}。站内模考暂不支持自选模块顺序，该假设需在真实模考中执行后再判定。`,
           };
         })()
       : null;
@@ -304,13 +310,29 @@ export default function MockPage() {
           </ul>
           {experiment ? <p className="mt-sm text-caption text-primary">下场策略实验：{experiment.hypothesis} 验证指标：{experiment.metric}。{experiment.nullResult}</p> : <p className="mt-sm text-caption text-muted">本场顺序与效率建议一致，下场可保持原策略。</p>}
           {/* F0197：上一场实验的验证结论 */}
-          {experimentOutcome ? <p className="mt-sm text-caption text-body">上场实验验证：{experimentOutcome.text}</p> : null}
+          {experimentOutcome ? (
+            <div className="mt-sm">
+              <p className="text-caption text-body">上场实验验证：{experimentOutcome.text}</p>
+              {comparableMode ? (
+                <button type="button" onClick={clearMockExperiment} className="mt-xxs text-caption text-muted underline-offset-2 hover:underline">
+                  已知悉，不再重复提示
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {/* F0196：把下场的模块时间预算落库，下次开考前可见 */}
           <Button
             className="mt-md"
             variant="secondary"
             onClick={() => setMockPlan({
-              budgets: nextOrder.map((item) => ({ moduleId: item.moduleId, suggestedOrder: item.suggestedOrder, suggestedMinutes: item.suggestedMinutes })),
+              // 预算按本场实际时长比例缩放，避免出现总和远超考试时长的建议
+              budgets: nextOrder.map((item) => ({
+                moduleId: item.moduleId,
+                suggestedOrder: item.suggestedOrder,
+                suggestedMinutes: Math.max(1, Math.round((examMode === "短模考" ? 6 : EXAM_SECONDS / 60) / Math.max(nextOrder.length, 1))),
+              })),
+              examMode,
+              fullScore: fullPaperScore,
               experiment: experiment ? { hypothesis: experiment.hypothesis, metric: experiment.metric, recordedAt: new Date().toISOString(), baselineScore: totalScore } : null,
             })}
           >

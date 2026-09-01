@@ -24,12 +24,12 @@ export default function MessagesPage() {
   // F0357：后台消息模板参与文案渲染，未配置时用内置文案
   const [templates, setTemplates] = useState<Array<{ kind: string; template: string }>>([]);
   // F0316：系统消息的真实数据源——已发布公告与后台维护的考试节点
-  const [notices, setNotices] = useState<Array<{ id: string; title: string; body: string }>>([]);
+  const [notices, setNotices] = useState<Array<{ id: string; title: string; body: string; publishedAt?: string | null }>>([]);
   const [examNodes, setExamNodes] = useState<Array<{ id: number; exam_name: string; kind: string; date: string }>>([]);
   useEffect(() => {
     void fetch("/api/operations/public")
       .then((r) => r.json())
-      .then((d: { ok: boolean; templates?: Array<{ kind: string; template: string }>; notices?: Array<{ id: string; title: string; body: string }> }) => {
+      .then((d: { ok: boolean; templates?: Array<{ kind: string; template: string }>; notices?: Array<{ id: string; title: string; body: string; publishedAt?: string | null }> }) => {
         if (!d.ok) return;
         setTemplates(d.templates ?? []);
         setNotices(d.notices ?? []);
@@ -93,7 +93,7 @@ export default function MessagesPage() {
     }
     // F0316 系统消息：来自后台已发布公告 + 真实考试节点，而不是单条静态文案
     for (const notice of notices) {
-      out.push({ id: `notice-${notice.id}`, category: "系统", title: notice.title, body: notice.body, at: new Date().toISOString() });
+      out.push({ id: `notice-${notice.id}`, category: "系统", title: notice.title, body: notice.body, at: notice.publishedAt ?? new Date().toISOString() });
     }
     if (examNodes.length > 0) {
       const upcoming = buildExamNodeNotifications(examNodes);
@@ -144,7 +144,8 @@ export default function MessagesPage() {
     // F0291 考试节点提醒：仅在行动窗口内生成
     if (profile.goal?.examDate) {
       const nodeMessages = buildExamNodeNotifications(
-        [{ id: 1, exam_name: profile.goal.examName, kind: "笔试", date: profile.goal.examDate }],
+        // 用负 id 与后台节点（正整数 id）区分，避免 exam-1 键冲突导致两条消息被一起忽略
+        [{ id: -1, exam_name: profile.goal.examName, kind: "笔试", date: profile.goal.examDate }],
       );
       for (const n of nodeMessages) {
         if (shouldNotify(prefs, "考试节点").allowed) {
@@ -155,7 +156,7 @@ export default function MessagesPage() {
     // F0299：仅使用题级作答的前后正确率差，不把任务完成数误称为进步。
     const measuredProgress = trainingAccuracyProgress(attemptRecords);
     const progress = measuredProgress
-      ? progressNotification(measuredProgress.delta, measuredProgress.metric)
+      ? progressNotification(measuredProgress.delta, measuredProgress.metric, new Date(), templates)
       : null;
     if (progress && shouldNotify(prefs, "进步").allowed) {
       out.push({ id: progress.id, category: "学习", title: progress.title, body: progress.body, at: progress.at });

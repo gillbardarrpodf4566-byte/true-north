@@ -5,7 +5,10 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { adminApi, staffMe } from "@/lib/auth/adminClient";
 
-interface Notice { id: string; title: string; body: string; status: string }
+/** 只列出消息引擎真实消费的类型，避免配置了永不生效的模板。 */
+const TEMPLATE_KINDS = ["复习到期", "进步"] as const;
+
+interface Notice { id: string; title: string; body: string; status: string; publishedAt?: string | null }
 interface Template { id: string; kind: string; template: string }
 
 /** 运营位与消息模板（F0356/F0357）：草稿不外发，发布后进入用户端。 */
@@ -15,6 +18,8 @@ export default function AdminOperationsPage() {
   const [ready, setReady] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [draft, setDraft] = useState({ title: "", body: "" });
+  const [newTemplateKind, setNewTemplateKind] = useState<string>("复习到期");
+  const [newTemplateText, setNewTemplateText] = useState("");
 
   const load = useCallback(async (): Promise<void> => {
     const data = await adminApi<{ notices?: Notice[]; message_templates?: Template[] }>("/api/admin/operations");
@@ -61,7 +66,9 @@ export default function AdminOperationsPage() {
                 <span className="text-caption text-muted">状态：{notice.status}</span>
                 <Button
                   variant="secondary"
-                  onClick={() => void save("notices", notices.map((item) => item.id === notice.id ? { ...item, status: item.status === "已发布" ? "草稿" : "已发布" } : item), notice.status === "已发布" ? "已撤回公告" : "已发布公告")}
+                  onClick={() => void save("notices", notices.map((item) => item.id === notice.id
+                    ? { ...item, status: item.status === "已发布" ? "草稿" : "已发布", publishedAt: item.status === "已发布" ? null : new Date().toISOString() }
+                    : item), notice.status === "已发布" ? "已撤回公告" : "已发布公告")}
                 >
                   {notice.status === "已发布" ? "撤回" : "发布"}
                 </Button>
@@ -100,6 +107,25 @@ export default function AdminOperationsPage() {
             </li>
           ))}
         </ul>
+        {/* F0357：必须能新增模板，否则引擎消费的 kind 无法配置 */}
+        <div className="mt-md grid gap-sm sm:grid-cols-[12rem_1fr_auto]">
+          <select aria-label="模板类型" value={newTemplateKind} onChange={(event) => setNewTemplateKind(event.target.value)} className="h-11 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink">
+            {TEMPLATE_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+          </select>
+          <input aria-label="新模板文案" value={newTemplateText} onChange={(event) => setNewTemplateText(event.target.value)} placeholder="支持占位符，如 「{knowledgePoint}」到复测时间了" className="h-11 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink" />
+          <Button
+            variant="secondary"
+            disabled={newTemplateText.trim() === ""}
+            onClick={async () => {
+              const next = [...templates.filter((item) => item.kind !== newTemplateKind), { id: `t-${Date.now()}`, kind: newTemplateKind, template: newTemplateText.trim() }];
+              await save("message_templates", next, `已保存「${newTemplateKind}」模板`);
+              setNewTemplateText("");
+            }}
+          >
+            新增/替换
+          </Button>
+        </div>
+        <p className="mt-xs text-caption text-muted">当前生效的类型：复习到期（占位符 knowledgePoint）、进步（占位符 metric）。其他类型暂未被消息引擎消费。</p>
         <Button className="mt-md" variant="secondary" onClick={() => void save("message_templates", templates, "消息模板已保存")}>保存模板</Button>
       </section>
 

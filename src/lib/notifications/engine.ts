@@ -116,12 +116,17 @@ export function trainingAccuracyProgress(
 }
 
 /** F0299 进步提醒：必须带真实变化，不发送空泛鼓励 */
-export function progressNotification(delta: number, metric: string, now = new Date()): NotificationEvent | null {
+export function progressNotification(
+  delta: number,
+  metric: string,
+  now = new Date(),
+  templates?: Array<{ kind: string; template: string }> | null,
+): NotificationEvent | null {
   if (delta <= 0) return null;
   return {
     id: `progress-${now.getTime()}`,
     kind: "进步",
-    title: `${metric}有稳定进步`,
+    title: renderTemplate(templates, "进步", { metric, delta: String(delta) }, `${metric}有稳定进步`),
     body: `最近记录比你的个人基线高 ${delta} 个百分点，这个变化值得保留。`,
     at: now.toISOString(),
     actionHref: "/progress",

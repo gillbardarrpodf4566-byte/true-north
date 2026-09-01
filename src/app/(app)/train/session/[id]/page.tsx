@@ -39,6 +39,7 @@ export default function SessionPage() {
     addTaskResult,
     addAttemptRecords,
     attemptRecords,
+    taskAdjustments,
     addWrongEntries,
     wrongBook,
     updateWrongEntry,
@@ -126,9 +127,15 @@ export default function SessionPage() {
     const count = Math.min(task?.questionCount ?? 8, 12);
     const offset = sessions.filter((item) => item.moduleId === moduleId && item.finishedAt != null).length * 7;
     // F0107：难度真正参与选题，而不是只写在任务标题里
-    const difficulty = adaptiveDifficulty(moduleId, computeAbilityDimensions(attemptRecords));
+    // F0107 + F0116：能力决定基准难度；若最近登记过「太难」，再下调一档，
+    // 让今日页承诺的「难度下调」真实作用于选题。
+    const baseDifficulty = adaptiveDifficulty(moduleId, computeAbilityDimensions(attemptRecords));
+    const recentTooHard = taskAdjustments.some(
+      (item) => item.reason === "太难" && item.at >= new Date(Date.now() - 36 * 3_600_000).toISOString(),
+    );
+    const difficulty = recentTooHard ? (Math.max(1, baseDifficulty - 1) as 1 | 2 | 3) : baseDifficulty;
     return drop(buildTrainingSet(moduleId, count, offset, difficulty));
-  }, [rawId, task?.moduleId, task?.questionCount, sessions, session?.questionIds, session?.wrongIds, disabledIds, wrongBook, attemptRecords]);
+  }, [rawId, task?.moduleId, task?.questionCount, sessions, session?.questionIds, session?.wrongIds, disabledIds, wrongBook, attemptRecords, taskAdjustments]);
 
   const questionIdsKey = questions.map((question) => question.id).join("\u001f");
 
@@ -657,7 +664,8 @@ export default function SessionPage() {
       </div>
 
       <Card key={q.id} tone="warm" padding="standard" className="mt-lg">
-        <div className="flex items-center gap-sm"><Chip tone="neutral">{q.type}</Chip><span className="text-caption text-muted-soft">{q.knowledgePoint}</span></div>
+        {/* F0320：题目编号必须可见，内容纠错表单才填得出来 */}
+        <div className="flex items-center gap-sm"><Chip tone="neutral">{q.type}</Chip><span className="text-caption text-muted-soft">{q.knowledgePoint}</span><span className="ml-auto text-micro text-muted-soft">编号 {q.id}</span></div>
         {q.material ? (
           <div className="mt-md overflow-x-auto rounded-sm border border-border bg-surface p-md">
             <p className="text-label-md text-ink">{q.material.title}</p>

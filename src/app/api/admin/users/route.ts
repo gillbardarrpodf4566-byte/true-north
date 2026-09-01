@@ -53,8 +53,14 @@ export async function PATCH(req: Request): Promise<NextResponse> {
     if (!canOps || !body.status) return NextResponse.json({ ok: false, message: "当前角色无封禁/标记权限" }, { status: 403 });
     setUserAdminState(body.userId, body.status, body.note ?? "", a.staff);
   } else if (body.action === "compensate") {
-    if (!canSupport || !body.kind || !body.amount || !body.reason) return NextResponse.json({ ok: false, message: "当前角色无补偿权限或参数不完整" }, { status: 403 });
-    addCompensation(body.userId, body.kind, body.amount, body.reason, a.staff);
+    if (!canSupport || !body.kind || !body.reason) return NextResponse.json({ ok: false, message: "当前角色无补偿权限或参数不完整" }, { status: 403 });
+    // 补偿只能是正整数且有上限：负数会反向扣减用户权益，非整数会污染 INTEGER 列。
+    const amount = Number(body.amount);
+    const cap = body.kind === "时长" ? 365 : 1000;
+    if (!Number.isInteger(amount) || amount <= 0 || amount > cap) {
+      return NextResponse.json({ ok: false, message: `补偿数量必须是 1–${cap} 的整数` }, { status: 400 });
+    }
+    addCompensation(body.userId, body.kind, amount, body.reason, a.staff);
   } else return NextResponse.json({ ok: false, message: "未知操作" }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

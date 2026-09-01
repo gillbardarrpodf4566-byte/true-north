@@ -34,7 +34,15 @@ export async function POST(req: Request): Promise<NextResponse> {
   const auth = req.headers.get("authorization");
   const token = auth?.startsWith("Bearer ") ? auth.slice(7) : null;
   const user = userFromToken(token);
-  const ticketId = createTicket({ category, type, text, hasScreenshot: body.hasScreenshot === true });
+  // F0320：内容纠错必须指向真实题目，否则工单无法定位
+  if (target.startsWith("session:")) {
+    const questionId = target.slice("session:".length).trim();
+    const { questionById } = await import("@/lib/questions/seed");
+    if (!questionById(questionId)) {
+      return NextResponse.json({ ok: false, message: "题目编号不存在，请在题目页复制正确编号。" }, { status: 400 });
+    }
+  }
+  const ticketId = createTicket({ category, type, text, hasScreenshot: body.hasScreenshot === true, targetRef: target || null });
 
   // F0322：人工支持工单不进 AI 质量候选池，但需要把工单号回给用户以便追踪。
   const aiRelated = ["解析错误", "诊断不准", "批改偏差", "幻觉"].includes(category);

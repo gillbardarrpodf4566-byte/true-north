@@ -190,6 +190,9 @@ interface ProfileState {
   /** F0196/F0197 下场模考的模块顺序预算与待验证策略实验 */
   mockPlan: {
     budgets: Array<{ moduleId: string; suggestedOrder: number; suggestedMinutes: number }>;
+    /** 记录时的模考模式与卷面满分：跨模式的分数不可直接比较 */
+    examMode: "短模考" | "整卷";
+    fullScore: number;
     experiment: { hypothesis: string; metric: string; recordedAt: string; baselineScore: number | null } | null;
   } | null;
   /** 通知偏好（F0290/F0324/F0294） */
@@ -247,6 +250,8 @@ interface ProfileState {
   addTaskAdjustment: (a: { taskId: string; reason: "时间不足" | "太难" | "计划不合理" | "其他"; change: string }) => void;
   addEssayPlanItem: (item: { title: string; minutes: number; successCriteria: string }) => void;
   setMockPlan: (plan: NonNullable<ProfileState["mockPlan"]>) => void;
+  /** F0197：实验已在同模式下判定过之后清除，避免反复给出矛盾结论 */
+  clearMockExperiment: () => void;
   completeEssayPlanItem: (id: string) => void;
   toggleWatchlist: (questionId: string) => void;
   setNotifications: (n: Partial<ProfileState["notifications"]>) => void;
@@ -482,6 +487,8 @@ export const useProfileStore = create<ProfileState>()(
         }),
       addTaskAdjustment: (a) => set((s) => ({ taskAdjustments: [...s.taskAdjustments, { ...a, at: new Date().toISOString() }] })),
       setMockPlan: (mockPlan) => set({ mockPlan }),
+      clearMockExperiment: () =>
+        set((s) => (s.mockPlan ? { mockPlan: { ...s.mockPlan, experiment: null } } : {} as Partial<ProfileState>)),
       addEssayPlanItem: (item) =>
         set((s) => {
           // 同标题只保留一条未完成项，重复点击不产生重复任务。

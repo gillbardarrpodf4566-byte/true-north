@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
 import { useProfileStore } from "@/lib/profile/store";
 import { getToken } from "@/lib/auth/client";
+import { effectiveMembership } from "@/lib/membership/effective";
 
 const BENEFITS: Array<{ name: string; free: string; pro: string }> = [
   { name: "AI 提分诊断", free: "每周 3 次", pro: "不限次数" },
@@ -24,8 +25,9 @@ export default function MembershipPage() {
   const { membership, purchaseMembership, restorePurchase, requestRefund } = useProfileStore();
   const [order, setOrder] = useState<"idle" | "处理中" | "成功" | "失败">("idle");
   const [plan, setPlan] = useState<"pro-monthly" | "pro-yearly">("pro-monthly");
-  // F0339：客服发放的补偿必须在用户侧可见
+  // F0339：客服发放的补偿必须真实参与额度/到期计算，并在用户侧可见
   const [bonus, setBonus] = useState<{ bonusDays: number; bonusQuota: number; records: Array<{ kind: string; amount: number; reason: string; at: string }> }>({ bonusDays: 0, bonusQuota: 0, records: [] });
+  const effective = effectiveMembership(membership, bonus);
   useEffect(() => {
     const token = getToken();
     if (!token) return;
@@ -67,8 +69,11 @@ export default function MembershipPage() {
         </p>
         {/* F0313 AI 额度 */}
         <p className="mt-xs text-caption text-muted">
-          AI / 批改额度：{membership.plan === "free" ? `${Math.max(0, membership.aiQuota - membership.usedAi)}/${membership.aiQuota}` : "不限"}
-          {membership.expiresAt ? ` · 权益至 ${membership.expiresAt.slice(0, 10)}` : ""}
+          {/* F0339：额度与到期均按含补偿的有效权益显示 */}
+          AI / 批改额度：{effective.unlimited ? "不限" : `${effective.aiRemaining}/${effective.aiQuota}`}
+          {effective.expiresAt ? ` · 权益至 ${effective.expiresAt.slice(0, 10)}` : ""}
+          {bonus.bonusQuota > 0 && !effective.unlimited ? `（含补偿 +${bonus.bonusQuota}）` : ""}
+          {bonus.bonusDays > 0 && effective.expiresAt ? `（含补偿 +${bonus.bonusDays} 天）` : ""}
         </p>
         {/* F0339：客服补偿已实际发放，用户可见并可核对原因 */}
         {bonus.bonusDays > 0 || bonus.bonusQuota > 0 ? (

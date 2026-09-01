@@ -383,6 +383,15 @@ export default function ProgressPage() {
           </Link>
         </Card>
 
+        {/* F0048：基线与证据入口此前无法从应用内到达，这里补上唯一可达路径 */}
+        {baseline ? (
+          <Card className="text-center">
+            <Link href="/baseline" className="text-label-md text-primary">
+              查看个人基线与数据来源 ›
+            </Link>
+          </Card>
+        ) : null}
+
         {/* V1 选岗入口（§10.1 进展域） */}
         <Card className="text-center">
           <Link href="/jobs" className="text-label-md text-primary">

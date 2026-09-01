@@ -511,6 +511,11 @@ export default function AiOpsPage() {
                   {feedbackClusters.map((c) => <li key={c.cluster} className="flex justify-between"><span>{c.cluster} · 示例：{c.sample}</span><Chip tone={c.count >= 2 ? "warning" : "neutral"}>{c.count}</Chip></li>)}
                 </ul>
                 <p className="mt-sm text-caption text-muted">候选只显示经脱敏摘录；仅“来源已验证”的候选会展示实际生产者与版本，来源缺失的候选不可晋升回归用例。</p>
+                {/* F0381：当前无真实模型适配器，候选均无模型/Prompt 版本，按版本细分尚不可用 */}
+                <p className="mt-xxs text-caption text-warning">
+                  当前 Provider 为确定性规则引擎，候选不携带模型/Prompt 版本，聚类只能按错误类型进行；
+                  接入真实模型并登记调用上下文后，同一列表会自动按「类型 + 模型/Prompt」细分。
+                </p>
                 <ul className="mt-sm space-y-sm">
                   {feedbackCandidates.map((candidate) => (
                     <li key={candidate.id} className="rounded-sm border border-border bg-surface p-sm text-caption text-body">

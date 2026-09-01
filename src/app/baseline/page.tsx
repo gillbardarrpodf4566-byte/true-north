@@ -53,7 +53,9 @@ export default function BaselinePage() {
       {/* F0048 证据入口：基线由哪些导入构成、各自的解析版本与证据留存状态 */}
       {imports.length > 0 ? (
         <details className="mt-lg rounded-md border border-border bg-surface p-md">
-          <summary className="cursor-pointer text-body-sm text-primary">这条基线的数据来源（{imports.length} 次导入）</summary>
+          <summary className="cursor-pointer text-body-sm text-primary">
+            这条基线的数据来源（共 {imports.length} 次导入{imports.length > 6 ? "，下列为最近 6 次" : ""}）
+          </summary>
           <ul className="mt-sm space-y-sm">
             {[...imports].reverse().slice(0, 6).map((record) => (
               <li key={record.id} className="text-caption text-body">

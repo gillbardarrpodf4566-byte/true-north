@@ -9,6 +9,7 @@ interface Notice {
   title: string;
   body: string;
   status: string;
+  publishedAt?: string | null;
 }
 
 interface Template {
