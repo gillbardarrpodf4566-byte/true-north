@@ -81,7 +81,9 @@ await page.setInputFiles('input[type="file"]', {
   // 进入今日 → App Shell 底部导航可用
   await page.getByRole("button", { name: "进入今日" }).click();
   await page.waitForURL(/\/today(\?|$)/);
-  await expect(page.getByText("今日焦点")).toBeVisible();
+  // 「今日焦点」是焦点区的无障碍名称（section aria-label）。
+  // 视觉层不再渲染装饰性 eyebrow 文本，因此断言区域角色而非文本节点。
+  await expect(page.getByRole("region", { name: "今日焦点" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "主导航" })).toBeVisible();
 });
 

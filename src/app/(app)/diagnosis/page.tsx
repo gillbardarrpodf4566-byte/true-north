@@ -88,8 +88,9 @@ export default function DiagnosisPage() {
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
       <header>
-        <p className="text-micro text-primary">提分诊断</p>
-        <h1 className="mt-sm text-headline-xl text-ink">{diagnosis.headline}</h1>
+        {/* craft floor 禁止 heading 之上的 eyebrow；§23.2 要求首元素即页面判断，
+            因此结论直接作为 h1，页面身份交给导航与文档标题承载。 */}
+        <h1 className="text-headline-xl text-ink">{diagnosis.headline}</h1>
         <div className="mt-md flex flex-wrap items-center gap-sm">
           <Chip tone={diagnosis.confidence === "高" ? "insight" : "warning"}>
             {diagnosis.provisional ? "候选结论 · 证据不足" : `置信度 ${diagnosis.confidence}`}
@@ -224,7 +225,7 @@ export default function DiagnosisPage() {
             </Card>
           ) : null}
 
-          <div className="sticky bottom-0 mt-xl bg-canvas pt-md">
+          <div className="sticky bottom-0 mt-xl -mx-margin-mobile bg-material-nav px-margin-mobile pt-md pb-sm shadow-nav-material backdrop-blur-xl">
             <Button fullWidth onClick={generate}>
               生成今日处方
             </Button>

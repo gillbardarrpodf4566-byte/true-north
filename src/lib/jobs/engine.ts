@@ -42,7 +42,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 2, interviewScore: 131.2, applicants: 96 },
       { year: 2025, recruited: 3, interviewScore: 128.6, applicants: 118 },
     ],
-    source: { name: "2026 国考职位表（官方）·演示数据", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15", origin: "simulated" },
+    source: { name: "2026 国考职位模拟数据（演示用，非官方公告）", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15", origin: "simulated" },
   },
   {
     id: "job-002",
@@ -60,7 +60,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 1, interviewScore: 124.5, applicants: 61 },
       { year: 2025, recruited: 1, interviewScore: 126.8, applicants: 74 },
     ],
-    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
+    source: { name: "2026 省考职位模拟数据（演示用，非官方公告）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-003",
@@ -78,7 +78,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 3, interviewScore: 118.9, applicants: 142 },
       { year: 2025, recruited: 2, interviewScore: 121.4, applicants: 158 },
     ],
-    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
+    source: { name: "2026 省考职位模拟数据（演示用，非官方公告）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-004",
@@ -95,7 +95,7 @@ export const SEED_POSITIONS: JobPosition[] = [
     history: [
       { year: 2025, recruited: 1, interviewScore: 138.2, applicants: 203 },
     ],
-    source: { name: "2026 选调职位表（官方）·演示数据", file: "2026-xd-positions.xlsx", updatedAt: "2026-08-25", origin: "simulated" },
+    source: { name: "2026 选调职位模拟数据（演示用，非官方公告）", file: "2026-xd-positions.xlsx", updatedAt: "2026-08-25", origin: "simulated" },
   },
   {
     id: "job-005",
@@ -113,7 +113,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 4, interviewScore: 108.3, applicants: 88 },
       { year: 2025, recruited: 5, interviewScore: 110.1, applicants: 95 },
     ],
-    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30", origin: "simulated" },
+    source: { name: "2026 省考职位模拟数据（演示用，非官方公告）", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30", origin: "simulated" },
   },
   {
     id: "job-006",
@@ -131,7 +131,7 @@ export const SEED_POSITIONS: JobPosition[] = [
       { year: 2024, recruited: 2, interviewScore: 134.7, applicants: 187 },
       { year: 2025, recruited: 2, interviewScore: 136.1, applicants: 210 },
     ],
-    source: { name: "2026 市考职位表（官方）·演示数据", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28", origin: "simulated" },
+    source: { name: "2026 市考职位模拟数据（演示用，非官方公告）", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28", origin: "simulated" },
   },
 ];
 

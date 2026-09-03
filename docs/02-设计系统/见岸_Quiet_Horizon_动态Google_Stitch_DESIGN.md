@@ -13,8 +13,11 @@ colors:
   dawn-soft: "#F4E8D9"
   ink: "#122B2F"
   body: "#34484B"
-  muted: "#687A7D"
-  muted-soft: "#96A5A7"
+  # 四级文本阶梯，均以 canvas-grouped(#F1F5F3) 与 surface(#FFFFFF) 双底验算 ≥4.5:1：
+  #   ink 13.5:1 / body 8.8:1 / muted 6.2:1 / muted-soft 4.7:1
+  # 修复前 muted #687A7D 仅 4.3:1、muted-soft #96A5A7 仅 2.6:1，大量元数据文本不达标。
+  muted: "#4A5E61"
+  muted-soft: "#5E7174"
   canvas: "#F7F9F8"
   canvas-warm: "#FAF8F4"
   surface: "#FFFFFF"
@@ -34,6 +37,14 @@ colors:
   on-dark: "#F8FBFA"
   scrim: "#0B1B1E"
   focus-ring: "#4E8E91"
+  # --- §6.4 材质层（Apple-grade depth）：分隔线、半透明材质与分组画布 ---
+  separator: "#E6ECE9"
+  separator-opaque: "#EDF2F0"
+  canvas-grouped: "#F1F5F3"
+  material-nav: "rgba(247,249,248,0.86)"
+  material-sheet: "rgba(255,255,255,0.92)"
+  material-fill: "rgba(18,43,47,0.045)"
+  material-fill-strong: "rgba(18,43,47,0.075)"
 typography:
   display-web:
     fontFamily: "Inter Variable, PingFang SC, HarmonyOS Sans SC, Noto Sans SC, system-ui, sans-serif"
@@ -163,6 +174,10 @@ spacing:
   margin-mobile: 20px
   margin-tablet: 32px
   margin-desktop: 48px
+  # --- §5.7 inset grouped list：分组内缩、组间距、行最小高度 ---
+  separator-inset: 16px
+  group-gap: 24px
+  row-min: 44px
 motion:
   instant: 80ms
   feedback: 120ms
@@ -185,6 +200,12 @@ elevation:
   lift-sm: "0 1px 2px rgba(18,43,47,0.04), 0 8px 24px rgba(18,43,47,0.05)"
   lift-md: "0 2px 6px rgba(18,43,47,0.06), 0 18px 48px rgba(18,43,47,0.08)"
   lift-focus: "0 10px 36px rgba(43,99,103,0.12), 0 1px 0 rgba(255,255,255,0.7) inset"
+  # --- §6.3 Apple-grade material depth（替代发丝边框） ---
+  card-rest: "0 1px 3px rgba(18,43,47,0.03), 0 8px 24px rgba(18,43,47,0.03)"
+  card-pressed: "inset 0 1px 3px rgba(18,43,47,0.07)"
+  card-raised: "0 2px 8px rgba(18,43,47,0.05), 0 16px 40px rgba(18,43,47,0.07)"
+  nav-material: "0 -1px 0 rgba(18,43,47,0.04), 0 -4px 16px rgba(18,43,47,0.03)"
+  sheet-material: "0 -2px 12px rgba(18,43,47,0.06), 0 -12px 32px rgba(18,43,47,0.08)"
 interaction:
   min-touch: 44px
   preferred-touch: 48px
@@ -224,7 +245,11 @@ components:
     rounded: "{rounded.full}"
     height: 44px
   app-shell:
-    backgroundColor: "{colors.canvas}"
+    # §6.3 材质决策：shell 用 canvas-grouped 而非 canvas。
+    # canvas(#F7F9F8) 与 surface(#FFFFFF) 对比仅 1.03:1，白卡无法靠填充与背景分离，
+    # 迫使每张卡叠加 1px 边框；改用 canvas-grouped(#F1F5F3) 后由 card-rest 双层柔阴影
+    # 承担分离，符合「elevation 只声明一次」。canvas 保留为大气层（§5.4 Z0）与降级底色。
+    backgroundColor: "{colors.canvas-grouped}"
     textColor: "{colors.ink}"
   top-app-bar:
     backgroundColor: transparent
@@ -742,6 +767,26 @@ Bottom Navigation、Bottom Sheet、Popover、floating tool。允许使用 transl
 - CTA 优先靠近相关内容，不统一堆到底部。
 - 移动端主要操作优先放在屏幕下半区可达区域。
 
+### 5.7 Inset Grouped List / 内缩分组列表
+
+同构行的集合用分组列表，不用「一屏等宽卡片堆叠」。
+
+结构（对应 `spacing.separator-inset` / `spacing.group-gap` / `spacing.row-min`）：
+
+- **分组容器**：`surface` 实色 + `rounded.sm`(10px) + `card-rest`，`overflow-hidden` 裁剪行背景。
+  容器不加边框（§6.3：elevation 只声明一次）。
+- **行**：最小高度 44px（= `interaction.min-touch`），水平内边距 `base`(16px)。
+- **分隔线**：1px `separator`，**左内缩 16px 与行内文本对齐**，末行不显示。
+  需要贯穿整行时显式选择 full 变体。
+- **分组标题**：`label-md` / `muted`，**上间距 `group-gap`(24px) 大于下间距 `sm`(8px)**。
+  标题只用于真实分类语义；不得作为大标题之上的装饰性 eyebrow。
+- **分组脚注**：`caption` / `muted`，说明该组数据的来源或后果。
+- **按压反馈**：行用材质填充（`material-fill`）变色，**不用缩放**——列表内缩放会抖动。
+
+**Group 与 Card 的分工**：Card 是单个信息容器，Group 是同构行集合；两者不得互相嵌套。
+
+背景前提：shell 用 `canvas-grouped`，白底分组才能靠 `card-rest` 与背景分离（§6.3 表格）。
+
 ---
 
 ## 6. Materials & Elevation / 材质与景深
@@ -775,7 +820,26 @@ Bottom Navigation、Bottom Sheet、Popover、floating tool。允许使用 transl
 
 Shadow 色相向品牌 ink 偏移，不用纯黑。
 
-禁止 5–6 套 shadow level。见岸只有：Flat / Small Lift / Modal Lift / Focus Lift。
+禁止 5–6 套 shadow level。**景深仍只有四级**：Flat / Small Lift / Modal Lift / Focus Lift。
+
+四级之外只允许两类附加定义，它们不是新的景深层级，不得再扩张：
+
+1. **交互态**（同一景深的状态变化，不产生新层级）
+   - `card-pressed`：内凹 inset 阴影，表达按压的物理下陷；与静息态属同一层。
+2. **材质边缘**（§6.2 Functional Glass 的组成部分，不是投影）
+   - `nav-material` / `sheet-material`：以 `-1px` 偏移的发丝边界定玻璃与内容的交界。
+     使用它们的组件**不得再叠加 border**，否则等于同时声明两次 elevation。
+
+内容面的两个实现值映射到既有四级，而非新增层级：
+
+| 实现 token | 对应景深层级 | 用途 |
+|---|---|---|
+| `card-rest` | Small Lift | 静息卡片/分组容器 |
+| `card-raised` | Modal Lift | 焦点卡、浮动元素 |
+| `lift-sm` / `lift-md` | 同上（旧名） | 保留兼容，新代码用上表两个 |
+
+**核心规则：elevation 只声明一次。** 边框或阴影二选一；
+「1px 边框 + 宽柔阴影」是 ghost card，属禁止项。
 
 ### 6.4 Occlusion
 

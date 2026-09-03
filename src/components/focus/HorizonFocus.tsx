@@ -62,7 +62,7 @@ export function HorizonFocus({
   return (
     <section
       aria-label={label}
-      className="relative overflow-hidden rounded-xl bg-primary-faint p-6"
+      className="relative overflow-hidden rounded-md bg-primary-faint p-6 shadow-card-raised"
       style={{
         opacity: at(1) ? 1 : 0,
         transition: `opacity ${reduce ? duration.instant : duration.feedback}ms ${ease}`,
@@ -70,11 +70,12 @@ export function HorizonFocus({
     >
       {/* 地平线：由中心向两侧展开（不是圆环仪表，§2.4） */}
       <div className="pointer-events-none absolute inset-x-6 top-[42%]" aria-hidden="true">
+        {/* 由中心向两侧展开：用 scaleX 而非 width，走合成层不触发重排 */}
         <div
-          className="mx-auto h-px bg-horizon-glow/60"
+          className="h-px w-full origin-center bg-horizon-glow/60"
           style={{
-            width: at(2) ? "100%" : "0%",
-            transition: `width ${reduce ? 0 : duration.content}ms ${ease}`,
+            transform: at(2) ? "scaleX(1)" : "scaleX(0)",
+            transition: `transform ${reduce ? 0 : duration.content}ms ${ease}`,
           }}
         />
         <div
@@ -88,10 +89,10 @@ export function HorizonFocus({
         />
       </div>
 
-      <p className="relative text-micro text-primary">{label}</p>
-
+      {/* craft floor：不加装饰性 eyebrow。label 已由 section 的 aria-label 承载语义，
+          视觉层级交给「结论（标题级）→ 证据（正文级）」自身的字号与字重阶梯。 */}
       <div
-        className="relative mt-lg"
+        className="relative"
         style={{
           opacity: at(4) ? 1 : 0,
           transform: at(4) ? "translateY(0)" : "translateY(6px)",

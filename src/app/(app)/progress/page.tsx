@@ -9,6 +9,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Card } from "@/components/ui/Card";
+import { InsetGroup, ListRow } from "@/components/ui/List";
 import { EmptyState } from "@/components/ui/StateViews";
 import { TrendLine } from "@/components/charts/TrendLine";
 import { useProfileStore } from "@/lib/profile/store";
@@ -130,22 +131,24 @@ export default function ProgressPage() {
   return (
     <main className="mx-auto max-w-[430px] px-margin-mobile pb-xl pt-xl">
       <h1 className="text-headline-xl text-ink">进展</h1>
-      <p className="mt-sm text-body-md text-body">{summary}</p>
-      {profile.goal ? (
-        <p className="mt-xs text-caption text-muted">
-          目标 {profile.goal.targetTotal} 分
-          {baseline
-            ? ` · 当前估算 ${round1(
-                baseline.modules.reduce((s, m) => s + (m.accuracy ?? 0) * fullOf(m.id), 0),
-              )} 分 · 差距 ${round1(
-                profile.goal.targetTotal -
+      <Card padding="focus" radius="lg" className="mt-lg">
+        <p className="text-title-lg text-ink">{summary}</p>
+        {profile.goal ? (
+          <p className="mt-sm text-caption text-muted tabular-nums">
+            目标 {profile.goal.targetTotal} 分
+            {baseline
+              ? ` · 当前估算 ${round1(
                   baseline.modules.reduce((s, m) => s + (m.accuracy ?? 0) * fullOf(m.id), 0),
-              )} 分`
-            : ""}
-        </p>
-      ) : null}
+                )} 分 · 差距 ${round1(
+                  profile.goal.targetTotal -
+                    baseline.modules.reduce((s, m) => s + (m.accuracy ?? 0) * fullOf(m.id), 0),
+                )} 分`
+              : ""}
+          </p>
+        ) : null}
+      </Card>
 
-      <div className="mt-xl space-y-lg">
+      <div className="mt-xl space-y-xl">
         {totalTrend.length >= 2 ? (
           <TrendLine
             title="总分趋势"
@@ -181,54 +184,53 @@ export default function ProgressPage() {
         ) : null}
 
         {latestModules.length > 0 && baseline ? (
-          <Card>
-            <p className="text-label-md text-muted">最近一次 vs 个人基线</p>
-            <ul className="mt-sm space-y-xs text-body-sm text-body">
-              {latestModules.map((m) => {
-                const b = baseline.modules.find((x) => x.id === m.id)?.accuracy;
-                if (m.score == null || b == null) return null;
-                const delta = Math.round((m.score / fullOf(m.id) - b) * 100);
-                return (
-                  <li key={m.id} className="flex justify-between">
-                    <span>{m.id}</span>
-                    <span className={delta >= 0 ? "text-success" : "text-warning"}>
+          <InsetGroup header="最近一次 vs 个人基线">
+            {latestModules.map((m) => {
+              const b = baseline.modules.find((x) => x.id === m.id)?.accuracy;
+              if (m.score == null || b == null) return null;
+              const delta = Math.round((m.score / fullOf(m.id) - b) * 100);
+              return (
+                <ListRow
+                  key={m.id}
+                  title={m.id}
+                  trailing={
+                    <span className={`tabular-nums ${delta >= 0 ? "text-success" : "text-warning"}`}>
                       {delta >= 0 ? `+${delta}` : delta} 个百分点
                     </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </Card>
+                  }
+                />
+              );
+            })}
+          </InsetGroup>
         ) : null}
 
         {/* F0280 训练量趋势：有效时长 / 题量 / 完成率 */}
-        <Card>
-          <p className="text-label-md text-muted">训练投入（全部记录）</p>
-          <div className="mt-sm grid grid-cols-3 gap-sm text-center">
+        <InsetGroup header="训练投入（全部记录）">
+          <div className="grid grid-cols-3 px-base py-lg text-center">
             <div>
-              <p className="text-stat-md text-ink">{trainStats.minutes}</p>
+              <p className="text-stat-md text-ink tabular-nums">{trainStats.minutes}</p>
               <p className="text-caption text-muted">有效训练分钟</p>
             </div>
             <div>
-              <p className="text-stat-md text-ink">{trainStats.questions}</p>
+              <p className="text-stat-md text-ink tabular-nums">{trainStats.questions}</p>
               <p className="text-caption text-muted">作答题数</p>
             </div>
             <div>
-              <p className="text-stat-md text-ink">{trainStats.completionRate}%</p>
+              <p className="text-stat-md text-ink tabular-nums">{trainStats.completionRate}%</p>
               <p className="text-caption text-muted">任务完成率</p>
             </div>
           </div>
-        </Card>
+        </InsetGroup>
 
         {/* F0122 阶段路线图 */}
         {profile.goal && profile.conditions ? (
-          <Card>
-            <p className="text-label-md text-muted">阶段路线图</p>
-            <ol className="mt-md space-y-sm">
-              {stageRoadmap(profile.conditions.stage, profile.goal.examDate).map((s, i) => (
-                <li key={s.name} className="flex items-center gap-md">
+          <InsetGroup header="阶段路线图">
+            {stageRoadmap(profile.conditions.stage, profile.goal.examDate).map((s, i) => (
+              <ListRow
+                key={s.name}
+                leading={
                   <span
-                    className={`flex h-6 w-6 items-center justify-center rounded-full text-caption ${
+                    className={`flex h-6 w-6 items-center justify-center rounded-full text-caption tabular-nums ${
                       s.current
                         ? "bg-primary text-on-primary"
                         : i < stageIndex(profile.conditions!.stage)
@@ -238,46 +240,56 @@ export default function ProgressPage() {
                   >
                     {i + 1}
                   </span>
-                  <span className={`text-body-sm ${s.current ? "text-ink" : "text-body"}`}>
-                    {s.name}
-                    <span className="ml-sm text-caption text-muted">{s.note}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </Card>
+                }
+                title={<span className={s.current ? "text-ink" : "text-body"}>{s.name}</span>}
+                subtitle={s.note}
+              />
+            ))}
+          </InsetGroup>
         ) : null}
 
         {/* F0297/F0298：真实有效学习天数与克制的里程碑确认 */}
-        <Card>
-          <p className="text-label-md text-muted">学习节奏</p>
-          <p className="mt-xs text-stat-md text-ink">{effectiveStreak} 天</p>
-          <p className="text-caption text-muted">连续有效学习（只计达到成功判定的任务）</p>
-          {effectiveStreak > 0 && effectiveStreak % 7 === 0 ? <p className="mt-sm text-body-sm text-success">达成 {effectiveStreak} 天阶段节点。没有烟花——你已经有了可验证的投入证据。</p> : null}
-        </Card>
+        <InsetGroup header="学习节奏">
+          <div className="px-base py-lg">
+            <p className="text-stat-md text-ink tabular-nums">{effectiveStreak} 天</p>
+            <p className="text-caption text-muted">连续有效学习（只计达到成功判定的任务）</p>
+            {effectiveStreak > 0 && effectiveStreak % 7 === 0 ? <p className="mt-sm text-body-sm text-success">达成 {effectiveStreak} 天阶段节点。没有烟花——你已经有了可验证的投入证据。</p> : null}
+          </div>
+        </InsetGroup>
 
         {/* V1 能力画像（F0071/F0074/F0075/F0076） */}
-        <Card>
-          <p className="text-label-md text-muted">能力画像</p>
+        <InsetGroup
+          header="能力画像"
+          footer={
+            <>
+              稳定性：{ability.stability.level ?? "样本不足"} · 自动化：{ability.automation.ratio == null ? "样本不足" : `${Math.round(ability.automation.ratio * 100)}% 快且正确`}
+            </>
+          }
+        >
           {ability.byType.length === 0 ? (
-            <p className="mt-sm text-body-sm text-muted">完成至少 5 道同题型训练后，这里会出现题型能力。</p>
+            <div className="px-base py-lg text-body-sm text-muted">完成至少 5 道同题型训练后，这里会出现题型能力。</div>
           ) : (
-            <ul className="mt-sm space-y-xs text-body-sm text-body">
-              {ability.byType.slice(0, 5).map((x) => <li key={x.type} className="flex justify-between"><span>{x.type}</span><span>{x.accuracy == null ? "样本不足" : `${Math.round(x.accuracy * 100)}%`} · {x.sample} 题</span></li>)}
-            </ul>
+            ability.byType.slice(0, 5).map((x) => (
+              <ListRow
+                key={x.type}
+                title={x.type}
+                trailing={<span className="text-body-sm text-body tabular-nums">{x.accuracy == null ? "样本不足" : `${Math.round(x.accuracy * 100)}%`} · {x.sample} 题</span>}
+              />
+            ))
           )}
-          <p className="mt-md text-caption text-muted">稳定性：{ability.stability.level ?? "样本不足"} · 自动化：{ability.automation.ratio == null ? "样本不足" : `${Math.round(ability.automation.ratio * 100)}% 快且正确`}</p>
-          {ability.forgetting.filter((x) => x.risk === "高").slice(0, 2).map((x) => <p key={x.knowledgePoint} className="mt-xs text-caption text-warning">复习到期：{x.knowledgePoint} · {x.note}</p>)}
+          {ability.forgetting.filter((x) => x.risk === "高").slice(0, 2).map((x) => (
+            <ListRow key={x.knowledgePoint} title={<span className="text-warning">复习到期：{x.knowledgePoint}</span>} subtitle={x.note} />
+          ))}
           {/* F0079：用户可纠正画像判断，不静默覆盖 */}
-          <div className="mt-md border-t border-border pt-md">
+          <div className="px-base py-md">
             <p className="text-caption text-muted">画像不符合你的实际情况？告诉系统（F0079）</p>
             <div className="mt-xs flex gap-sm">
               <input value={correctionText} onChange={(e) => setCorrectionText(e.target.value)} aria-label="画像纠正" placeholder="如：我资料分析慢是因为晚上练" className="h-10 flex-1 rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink" />
               <button type="button" disabled={!correctionText.trim()} onClick={() => { addProfileCorrection({ scope: "知识点", key: "能力画像", userSays: correctionText.trim() }); setCorrectionText(""); }} className="rounded-sm border border-primary px-md text-caption text-primary disabled:opacity-40">纠正</button>
             </div>
-            {profileCorrections.length > 0 ? <p className="mt-xs text-micro text-muted">已记录 {profileCorrections.length} 条用户纠正；后续诊断会与这些说明一并呈现。</p> : null}
+            {profileCorrections.length > 0 ? <p className="mt-xs text-micro text-muted tabular-nums">已记录 {profileCorrections.length} 条用户纠正；后续诊断会与这些说明一并呈现。</p> : null}
           </div>
-        </Card>
+        </InsetGroup>
 
         {/* F0192/F0193 分数预测（区间，非伪精确） */}
         {(() => {
@@ -288,40 +300,38 @@ export default function ProgressPage() {
           const f = forecastScore(totals, baseline?.confidence ?? null);
           if (!f) return null;
           return (
-            <Card>
-              <div className="flex items-center justify-between">
-                <p className="text-label-md text-muted">当前水平预测（F0192）</p>
+            <InsetGroup header="当前水平预测（F0192）" footer={f.note}>
+              <div className="flex items-end justify-between px-base py-lg">
+                <p className="text-stat-lg text-ink tabular-nums">
+                  {f.low} – {f.high}
+                </p>
                 <span className="text-caption text-muted">{f.dataNote}</span>
               </div>
-              <p className="mt-sm text-stat-lg text-ink">
-                {f.low} – {f.high}
-              </p>
-              <p className="mt-xs text-caption text-muted">{f.note}</p>
-            </Card>
+            </InsetGroup>
           );
         })()}
 
         {/* F0158/F0159/F0160 错因聚合 */}
         {wrongBook.length > 0 ? (
-          <Card>
-            <p className="text-label-md text-muted">错因聚合（按错因，不只按题型）</p>
-            <ul className="mt-sm space-y-xs text-body-sm text-body">
-              {aggregateErrorCauses(wrongBook)
-                .ranking.slice(0, 4)
-                .map((r) => (
-                  <li key={r.cause} className="flex justify-between">
-                    <span>{r.cause}</span>
-                    <span className="text-muted">
-                      {r.count} 题 · {r.share}%
-                    </span>
-                  </li>
-                ))}
-            </ul>
-            <p className="mt-xs text-caption text-muted">
-              复发率 {aggregateErrorCauses(wrongBook).relapseRate ?? "—"}% ·
-              已修复 {aggregateErrorCauses(wrongBook).fixStatus.已修复} 题
-            </p>
-          </Card>
+          <InsetGroup
+            header="错因聚合（按错因，不只按题型）"
+            footer={
+              <span className="tabular-nums">
+                复发率 {aggregateErrorCauses(wrongBook).relapseRate ?? "—"}% ·
+                已修复 {aggregateErrorCauses(wrongBook).fixStatus.已修复} 题
+              </span>
+            }
+          >
+            {aggregateErrorCauses(wrongBook)
+              .ranking.slice(0, 4)
+              .map((r) => (
+                <ListRow
+                  key={r.cause}
+                  title={r.cause}
+                  trailing={<span className="text-body-sm text-muted tabular-nums">{r.count} 题 · {r.share}%</span>}
+                />
+              ))}
+          </InsetGroup>
         ) : null}
 
         {/* F0279 错因趋势：按周看错因构成变化，而不是只有当前排名 */}
@@ -330,16 +340,15 @@ export default function ProgressPage() {
           const weeks = [...new Set(trend.map((row) => row.week))].sort();
           if (weeks.length < 2) return null;
           return (
-            <Card>
-              <p className="text-label-md text-muted">错因趋势（F0279）</p>
-              <ul className="mt-sm space-y-xs text-caption text-body">
-                {weeks.slice(-4).map((week) => (
-                  <li key={week}>
-                    {week}：{trend.filter((row) => row.week === week).map((row) => `${row.cause} ${row.count}`).join(" · ")}
-                  </li>
-                ))}
-              </ul>
-            </Card>
+            <InsetGroup header="错因趋势（F0279）">
+              {weeks.slice(-4).map((week) => (
+                <ListRow
+                  key={week}
+                  title={<span className="tabular-nums">{week}</span>}
+                  subtitle={<span className="tabular-nums">{trend.filter((row) => row.week === week).map((row) => `${row.cause} ${row.count}`).join(" · ")}</span>}
+                />
+              ))}
+            </InsetGroup>
           );
         })()}
 
@@ -348,15 +357,12 @@ export default function ProgressPage() {
           const pressure = executionAndTimePressure(attemptRecords);
           if (pressure.execution === 0 && pressure.timePressure === 0) return null;
           return (
-            <Card>
-              <p className="text-label-md text-muted">执行与时间压力（F0155）</p>
-              <p className="mt-xs text-body-sm text-body">
-                执行/计算类 {pressure.execution} 次 · 疑似仓促作答 {pressure.timePressure} 次
-              </p>
-              <ul className="mt-sm space-y-xxs text-caption text-muted">
-                {pressure.evidence.slice(0, 3).map((line, index) => <li key={index}>· {line}</li>)}
-              </ul>
-            </Card>
+            <InsetGroup
+              header="执行与时间压力（F0155）"
+              footer={<span className="tabular-nums">执行/计算类 {pressure.execution} 次 · 疑似仓促作答 {pressure.timePressure} 次</span>}
+            >
+              {pressure.evidence.slice(0, 3).map((line, index) => <ListRow key={index} title={<>· {line}</>} />)}
+            </InsetGroup>
           );
         })()}
 
@@ -377,27 +383,23 @@ export default function ProgressPage() {
           );
         })()}
 
-        <Card className="text-center">
-          <Link href="/progress/weekly" className="text-label-md text-primary">
-            查看本周复盘 ›
+        <InsetGroup>
+          <Link href="/progress/weekly" className="block">
+            <ListRow interactive title={<span className="text-primary">查看本周复盘 ›</span>} />
           </Link>
-        </Card>
 
-        {/* F0048：基线与证据入口此前无法从应用内到达，这里补上唯一可达路径 */}
-        {baseline ? (
-          <Card className="text-center">
-            <Link href="/baseline" className="text-label-md text-primary">
-              查看个人基线与数据来源 ›
+          {/* F0048：基线与证据入口此前无法从应用内到达，这里补上唯一可达路径 */}
+          {baseline ? (
+            <Link href="/baseline" className="block">
+              <ListRow interactive title={<span className="text-primary">查看个人基线与数据来源 ›</span>} />
             </Link>
-          </Card>
-        ) : null}
+          ) : null}
 
-        {/* V1 选岗入口（§10.1 进展域） */}
-        <Card className="text-center">
-          <Link href="/jobs" className="text-label-md text-primary">
-            智能选岗（资格匹配 + 冲稳保候选）›
+          {/* V1 选岗入口（§10.1 进展域） */}
+          <Link href="/jobs" className="block">
+            <ListRow interactive title={<span className="text-primary">智能选岗（资格匹配 + 冲稳保候选）›</span>} />
           </Link>
-        </Card>
+        </InsetGroup>
       </div>
     </main>
   );

@@ -402,7 +402,8 @@ export default function TodayPage() {
 function Header({ daysLeft }: { daysLeft: number | null }) {
   return (
     <header>
-      <p className="text-caption text-muted">
+      {/* 倒计时用等宽数字，避免天数变化时整行抖动 */}
+      <p className="text-caption text-muted tabular-nums">
         {formatDate(new Date())}
         {daysLeft != null ? ` · 距考试 ${daysLeft} 天` : ""}
       </p>
@@ -415,7 +416,7 @@ function QuickLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md border border-border bg-surface px-md py-md text-center text-label-md text-ink"
+      className="rounded-md bg-surface px-md py-md text-center text-label-md text-ink shadow-card-rest transition-[transform,box-shadow] duration-feedback ease-standard active:scale-[0.99] active:shadow-card-pressed"
     >
       {label}
     </Link>

@@ -68,12 +68,13 @@ export async function POST(req: Request): Promise<NextResponse> {
           requiresGrassroots: r.requires_grassroots === 1,
           freshOnly: r.fresh_only === 1,
           history: JSON.parse(r.history) as JobPosition["history"],
-          // 演示种子标注为 simulated；后台导入的官方职位表为 verified。
+          // 来源可信度读显式列（演示种子 simulated / 后台导入 verified），
+          // 不再按名称子串推断——改名不应悄悄改变数据的可信度标注。
           source: {
             name: r.source_name,
             file: r.source_file,
             updatedAt: r.source_updated_at,
-            origin: r.source_name.includes("演示数据") ? "simulated" : "verified",
+            origin: r.source_origin === "simulated" ? "simulated" : "verified",
           },
         }),
       ),

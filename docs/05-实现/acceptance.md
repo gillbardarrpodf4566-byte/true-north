@@ -6,9 +6,11 @@
 > 灰度服务端强制、申论内容包版本化（含采分点）、职位表字段映射导入与资格规则版本化、外部导入幂等、
 > AI 反馈脱敏与真实来源、训练草稿与题级计时、验证码不再回显、公开接口不下发采分点、演示职位数据标注。
 > 2026-09-01 逐条独立复核（155 条分 5 组）：首轮 113 PASS / 35 WEAK / 7 FAIL；
-> 7 个 FAIL 与全部主要 WEAK 已分两轮修复，详见 [`spec-gaps.md`](spec-gaps.md) GAP-14 / GAP-15。
-> 自动化证据：`pnpm check`（typecheck / lint / vitest **182** 项 / token 漂移）+ `pnpm build` +
-> `pnpm audit --prod`（无已知漏洞）+ Playwright E2E **24/24**（串行，无重试）。
+> 7 个 FAIL 与全部主要 WEAK 已分两轮修复并经独立验证，详见 [`spec-gaps.md`](spec-gaps.md) GAP-14 / 15 / 16。
+> 2026-09-02 UI 工艺升级至 Apple 标准（精修 Quiet Horizon，五个核心 Tab）：材质层次、
+> WCAG AA 文本对比度、inset grouped list、移除装饰性 eyebrow；详见 GAP-17。
+> 自动化证据：`pnpm check`（typecheck / lint / vitest **192** 项 / token 漂移）+ `pnpm build` +
+> `pnpm audit --prod`（无已知漏洞）+ Playwright E2E **24/24**（串行，无重试）+ Impeccable 机械检测器零发现。
 > V1 逐条实施证据见 [`v1-feature-map.md`](v1-feature-map.md)。
 
 ## 1. 完成定义（GOAL_PROMPT DoD）对照
@@ -50,16 +52,34 @@
 | 23.2 3 秒层级 | 符合 | 每屏首元素即页面判断（Today=焦点结论、诊断=一句话、训练=进度+题干） |
 | 23.3 眯眼测试 | 符合 | 每屏仅 1 个视觉重心（Horizon Focus / 题干 / 首个机会卡） |
 | 23.4 色彩稀缺 | 符合 | 结构全部由中性色承载；青绿仅语义/CTA，曙光铜仅机会点；去色后布局不塌 |
-| 23.5 动效因果 | 符合 | 仅 Horizon Reveal / 周复盘 morph / 展开反馈三类 Signature；微动效全部反馈型 |
+| 23.5 动效因果 | 符合 | 仅 Horizon Reveal / 周复盘 morph / 展开反馈三类 Signature；微动效全部反馈型。地平线展开已改 `scaleX` 走合成层 |
 | 23.6 状态完备 | 基本符合 | 四态组件（skeleton/empty/error/offline）+ 按钮 loading/disabled；P0 组件 10 态中 offline/reduced-motion 全局覆盖，个别表单态待补 |
-| 23.7 高级感门槛 | 符合 | 无宫格首页、同屏 ≤1 大数字、Card 形态 ≤4 套、AI 结论均有证据入口、错误文案不羞辱 |
+| 23.7 高级感门槛 | 符合 | 无宫格首页、同屏 ≤1 大数字、Card 形态 ≤4 套、AI 结论均有证据入口、错误文案不羞辱；已移除标题之上的装饰性 eyebrow |
+
+### 3.1 §16.3 对比度（2026-09-02 实测修复）
+
+此前 `muted`(#687A7D) 与 `muted-soft`(#96A5A7) 在白底仅 **4.3:1 / 2.6:1**，未达 AA，
+而大量元数据文本正在使用它们。已暗化并重算四级阶梯，全部背景（surface / canvas / canvas-grouped / canvas-warm / surface-soft）实测达标：
+
+| Token | 值 | 白底 | canvas-grouped |
+|---|---|---|---|
+| ink | #122B2F | 14.87:1 | 13.52:1 |
+| body | #34484B | 9.66:1 | 8.78:1 |
+| muted | #4A5E61 | 6.85:1 | 6.23:1 |
+| muted-soft | #5E7174 | 5.13:1 | 4.67:1 |
+
+夜间主题同步验算（muted 6.90:1 / muted-soft 6.10:1）。该门槛已固化为 `tokens.test.ts` 的 WCAG 守卫测试，防止回退。
 
 ## 4. 硬约束执行情况
 
 - **Token 零手抄**：`check:tokens` 扫描 src/ 全量，色值/时长/曲线/px 字号硬编码为 0（生成文件与注释豁免）。
-- **规范缺口 11 项**全部记录于 `spec-gaps.md`，未混入规范原文。
+  本次升级顺带清理了两处历史硬编码：BottomNav 的 `rgba(255,255,255,0.78)` 与 layout 的 `64px`。
+- **规范缺口**全部记录于 `spec-gaps.md`（GAP-1…GAP-17），未混入规范原文。
 - **xlsx 状态机**：成绩导入/训练任务/错因 3 台机器为 XState 显式建模，六列约束含「禁止默认归因粗心」「一次答对不算修复」「中断不丢作答」均有单测。
-- **DESIGN.md 与 xlsx 未被修改**（git 历史可证）。
+- **xlsx（功能权威）未被修改**（git 历史可证）。
+- **DESIGN.md（设计权威）已按流程扩展**：2026-09-02 新增材质 token（colors/spacing/elevation）、
+  §5.7 Inset Grouped List、§6.3 景深映射表与「elevation 只声明一次」规则。
+  所有改动经 `pnpm tokens` 管线生成代码，未绕过管线手写 token。
 
 ## 5. 已知限制（转生产前必须处理）
 
@@ -74,7 +94,8 @@
 7. SQLite 为单文件库（`data/jianan.db`，gitignore）；多实例部署需换 Postgres，数据访问已集中在 `src/lib/server/db.ts`。
 8. 员工账号必须通过带外 `JIANAN_BOOTSTRAP_STAFF_JSON` 一次性引导；未配置时 staff 表保持为空、后台登录一律失败。
    历史内置演示账号与公开演示 token 会在启动时自动清除。
-9. 职位库自带种子标注为「演示数据」（`source.origin=simulated`），界面显式提示不可作为报名依据；
-   正式数据需通过 `/admin/positions` 导入官方职位表（导入拒绝未来日期的来源新鲜度）。
+9. 职位库自带种子标注为演示数据（`job_positions.source_origin='simulated'` 显式列，不再按名称子串推断），
+   界面显式提示不可作为报名依据；后台导入的正式职位表写 `verified`。
+   导入拒绝未来日期的来源新鲜度。
 10. AI 反馈候选只保留脱敏摘录；缺少可验证调用上下文的候选标记为来源不可用且不可晋升为回归用例。
     Provider 仍为确定性 mock，未伪称接入真实模型推理。

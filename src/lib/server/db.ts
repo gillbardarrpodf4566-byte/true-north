@@ -164,7 +164,9 @@ function open(): DatabaseSync {
       history TEXT NOT NULL,
       source_name TEXT NOT NULL,
       source_file TEXT NOT NULL,
-      source_updated_at TEXT NOT NULL
+      source_updated_at TEXT NOT NULL,
+      -- 数据来源可信度必须显式存储：按名称子串推断会让改名悄悄把演示数据变成 verified
+      source_origin TEXT NOT NULL DEFAULT 'verified'
     );
     CREATE TABLE IF NOT EXISTS exam_nodes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -297,9 +299,15 @@ function open(): DatabaseSync {
 
 /** 既有库的增量迁移：CREATE TABLE IF NOT EXISTS 不会为已存在的表补列。 */
 function migrate(db: DatabaseSync): void {
-  const columns = db.prepare("PRAGMA table_info(tickets)").all() as unknown as Array<{ name: string }>;
-  if (!columns.some((column) => column.name === "target_ref")) {
+  const ticketColumns = db.prepare("PRAGMA table_info(tickets)").all() as unknown as Array<{ name: string }>;
+  if (!ticketColumns.some((column) => column.name === "target_ref")) {
     db.exec("ALTER TABLE tickets ADD COLUMN target_ref TEXT");
+  }
+  const positionColumns = db.prepare("PRAGMA table_info(job_positions)").all() as unknown as Array<{ name: string }>;
+  if (!positionColumns.some((column) => column.name === "source_origin")) {
+    db.exec("ALTER TABLE job_positions ADD COLUMN source_origin TEXT NOT NULL DEFAULT 'verified'");
+    // 既有演示种子按名称特征回填为 simulated，避免旧库把演示数据当正式数据
+    db.exec("UPDATE job_positions SET source_origin = 'simulated' WHERE source_name LIKE '%演示%' OR source_name LIKE '%模拟%'");
   }
 }
 
@@ -388,8 +396,8 @@ function seedIfEmpty(db: DatabaseSync): void {
     const ins = db.prepare(
       `INSERT INTO job_positions
        (qid, name, department, region, unit_level, recruiting, min_education, major_categories,
-        political_requirement, requires_grassroots, fresh_only, history, source_name, source_file, source_updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        political_requirement, requires_grassroots, fresh_only, history, source_name, source_file, source_updated_at, source_origin)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const p of SEED_POSITIONS_FOR_DB) {
       ins.run(
@@ -408,6 +416,7 @@ function seedIfEmpty(db: DatabaseSync): void {
         p.source.name,
         p.source.file,
         p.source.updatedAt,
+        p.source.origin,
       );
     }
   }
@@ -432,7 +441,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 2, interviewScore: 131.2, applicants: 96 },
       { year: 2025, recruited: 3, interviewScore: 128.6, applicants: 118 },
     ],
-    source: { name: "2026 国考职位表（官方）·演示数据", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15", origin: "simulated" },
+    source: { name: "2026 国考职位模拟数据（演示用，非官方公告）", file: "2026-gk-positions.xlsx", updatedAt: "2026-08-15", origin: "simulated" },
   },
   {
     id: "job-002", name: "区统计局统计分析岗", department: "区统计局", region: "佛山市",
@@ -443,7 +452,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 1, interviewScore: 124.5, applicants: 61 },
       { year: 2025, recruited: 1, interviewScore: 126.8, applicants: 74 },
     ],
-    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
+    source: { name: "2026 省考职位模拟数据（演示用，非官方公告）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-003", name: "街道办综合管理岗", department: "某街道办事处", region: "广州市",
@@ -454,7 +463,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 3, interviewScore: 118.9, applicants: 142 },
       { year: 2025, recruited: 2, interviewScore: 121.4, applicants: 158 },
     ],
-    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
+    source: { name: "2026 省考职位模拟数据（演示用，非官方公告）", file: "2026-sk-positions.xlsx", updatedAt: "2026-08-20", origin: "simulated" },
   },
   {
     id: "job-004", name: "市委办公室文秘岗", department: "市委办公室", region: "武汉市",
@@ -462,7 +471,7 @@ const SEED_POSITIONS_FOR_DB = [
     majorCategories: ["中国语言文学类", "法学类"], politicalRequirement: "中共党员",
     requiresGrassroots: true, freshOnly: false,
     history: [{ year: 2025, recruited: 1, interviewScore: 138.2, applicants: 203 }],
-    source: { name: "2026 选调职位表（官方）·演示数据", file: "2026-xd-positions.xlsx", updatedAt: "2026-08-25", origin: "simulated" },
+    source: { name: "2026 选调职位模拟数据（演示用，非官方公告）", file: "2026-xd-positions.xlsx", updatedAt: "2026-08-25", origin: "simulated" },
   },
   {
     id: "job-005", name: "县市场监管局执法岗", department: "县市场监管局", region: "韶关市",
@@ -473,7 +482,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 4, interviewScore: 108.3, applicants: 88 },
       { year: 2025, recruited: 5, interviewScore: 110.1, applicants: 95 },
     ],
-    source: { name: "2026 省考职位表（官方）·演示数据", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30", origin: "simulated" },
+    source: { name: "2026 省考职位模拟数据（演示用，非官方公告）", file: "2026-sk-positions.xlsx", updatedAt: "2025-12-30", origin: "simulated" },
   },
   {
     id: "job-006", name: "市大数据管理局信息岗", department: "市大数据管理局", region: "深圳市",
@@ -484,7 +493,7 @@ const SEED_POSITIONS_FOR_DB = [
       { year: 2024, recruited: 2, interviewScore: 134.7, applicants: 187 },
       { year: 2025, recruited: 2, interviewScore: 136.1, applicants: 210 },
     ],
-    source: { name: "2026 市考职位表（官方）·演示数据", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28", origin: "simulated" },
+    source: { name: "2026 市考职位模拟数据（演示用，非官方公告）", file: "2026-ds-positions.xlsx", updatedAt: "2026-08-28", origin: "simulated" },
   },
 ];
 

@@ -9,6 +9,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { InsetGroup, ListRow, RowChevron } from "@/components/ui/List";
+import { Switch } from "@/components/ui/Switch";
 import { useProfileStore } from "@/lib/profile/store";
 import { deleteAccount, fetchMe, logout, recordPermission, type AuthUser } from "@/lib/auth/client";
 
@@ -108,37 +110,32 @@ export default function MePage() {
           <p className="mt-xs text-caption text-muted">头像可填写图片地址；不上传到模型。</p>
         </Card>
 
-        <Card>
-          <p className="text-label-md text-muted">考试目标</p>
-          {profile.goal ? (
-            <p className="mt-xs text-body-md text-body">
-              {profile.goal.examName} · {profile.goal.region} · 目标 {profile.goal.targetTotal} 分 ·{" "}
-              {profile.goal.examDate}
-            </p>
-          ) : (
-            <p className="mt-xs text-body-md text-muted">尚未设置。</p>
-          )}
-          <Link href="/onboarding" className="mt-md inline-block">
-            <Button variant="tertiary">修改目标</Button>
+        <InsetGroup header="学习档案">
+          <Link href="/onboarding" className="block">
+            <ListRow
+              interactive
+              title="考试目标"
+              subtitle={
+                profile.goal
+                  ? `${profile.goal.examName} · ${profile.goal.region} · 目标 ${profile.goal.targetTotal} 分 · ${profile.goal.examDate}`
+                  : "尚未设置。"
+              }
+              trailing={<><span className="text-caption text-primary">修改目标</span><RowChevron /></>}
+            />
           </Link>
-        </Card>
-
-        <Card>
-          <p className="text-label-md text-muted">学习条件</p>
-          {profile.conditions ? (
-            <p className="mt-xs text-body-md text-body">
-              工作日 {profile.conditions.weekdayMinutes} 分钟 · 周末{" "}
-              {profile.conditions.weekendMinutes} 分钟 · {profile.conditions.stage}
-            </p>
-          ) : (
-            <p className="mt-xs text-body-md text-muted">尚未设置。</p>
-          )}
-        </Card>
+          <ListRow
+            title="学习条件"
+            subtitle={
+              profile.conditions
+                ? `工作日 ${profile.conditions.weekdayMinutes} 分钟 · 周末 ${profile.conditions.weekendMinutes} 分钟 · ${profile.conditions.stage}`
+                : "尚未设置。"
+            }
+          />
+        </InsetGroup>
 
         {/* 通知偏好（F0290/F0324） */}
-        <Card>
-          <p className="text-label-md text-muted">学习偏好与教练风格（F0023/F0025/F0026/F0325）</p>
-          <div className="mt-md grid grid-cols-2 gap-md">
+        <InsetGroup header="学习偏好与教练风格（F0023/F0025/F0026/F0325）">
+          <ListRow className="grid grid-cols-2 items-start">
             <PreferenceSelect
               label="练习长度"
               value={learningPreferences.mode}
@@ -151,91 +148,86 @@ export default function MePage() {
               options={["文字", "互动"]}
               onChange={(v) => setLearningPreferences({ content: v as typeof learningPreferences.content })}
             />
+          </ListRow>
+          <ListRow
+            title="主动支持"
+            trailing={
+              <Switch
+                checked={learningPreferences.proactive}
+                label="主动支持"
+                onChange={(proactive) => setLearningPreferences({ proactive })}
+              />
+            }
+          >
             <PreferenceSelect
               label="教练风格"
               value={learningPreferences.coachStyle}
               options={["直接", "温和", "苏格拉底式"]}
               onChange={(v) => setLearningPreferences({ coachStyle: v as typeof learningPreferences.coachStyle })}
             />
-            <div>
-              <span className="text-caption text-muted">主动支持</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={learningPreferences.proactive}
-                onClick={() => setLearningPreferences({ proactive: !learningPreferences.proactive })}
-                className={`mt-xxs block h-8 w-14 rounded-full border ${
-                  learningPreferences.proactive ? "border-primary bg-primary" : "border-border-strong bg-surface-strong"
-                }`}
-              >
-                <span className={`block h-6 w-6 rounded-full bg-surface ${learningPreferences.proactive ? "translate-x-7" : "translate-x-1"}`} />
-              </button>
-            </div>
-          </div>
-          <label className="mt-md block">
-            <span className="text-caption text-muted">已有资源（F0023，可多项用逗号分隔）</span>
-            <input
-              value={learningPreferences.resources.join("、")}
-              onChange={(e) => setLearningPreferences({ resources: e.target.value.split(/[、,，]/).map((v) => v.trim()).filter(Boolean) })}
-              aria-label="已有资源"
-              placeholder="如 粉笔题库、线下课程"
-              className="mt-xxs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
-            />
-          </label>
-        </Card>
+            <div className="flex-1 text-body-md text-ink">主动支持</div>
+          </ListRow>
+          <ListRow>
+            <label className="block w-full">
+              <span className="text-caption text-muted">已有资源（F0023，可多项用逗号分隔）</span>
+              <input
+                value={learningPreferences.resources.join("、")}
+                onChange={(e) => setLearningPreferences({ resources: e.target.value.split(/[、,，]/).map((v) => v.trim()).filter(Boolean) })}
+                aria-label="已有资源"
+                placeholder="如 粉笔题库、线下课程"
+                className="mt-xxs h-10 w-full rounded-sm border border-border-strong bg-surface px-md text-body-sm text-ink"
+              />
+            </label>
+          </ListRow>
+        </InsetGroup>
 
-        <Card>
-          <p className="text-label-md text-muted">通知偏好</p>
-          <div className="mt-sm space-y-sm">
-            <ToggleRow
-              label="今日任务提醒"
-              checked={notifications.taskReminder}
-              onChange={(v) => setNotifications({ taskReminder: v })}
-            />
-            <ToggleRow
-              label="诊断完成通知"
-              checked={notifications.diagnosisReady}
-              onChange={(v) => setNotifications({ diagnosisReady: v })}
-            />
-            <ToggleRow
-              label="考试节点提醒"
-              checked={notifications.examDeadline}
-              onChange={(v) => setNotifications({ examDeadline: v })}
-            />
-            <ToggleRow
-              label="复习到期提醒"
-              checked={notifications.review}
-              onChange={(v) => setNotifications({ review: v })}
-            />
-            <ToggleRow
-              label="进步证据提醒"
-              checked={notifications.progress}
-              onChange={(v) => setNotifications({ progress: v })}
-            />
-            <ToggleRow
-              label="允许主动支持（可降频）"
-              checked={notifications.proactive}
-              onChange={(v) => setNotifications({ proactive: v })}
-            />
-          </div>
-          <p className="mt-sm text-caption text-muted">
-            提醒时段 {notifications.window}；只在有行动价值时提醒，不做打卡轰炸。
-          </p>
-        </Card>
+        <InsetGroup
+          header="通知偏好"
+          footer={`提醒时段 ${notifications.window}；只在有行动价值时提醒，不做打卡轰炸。`}
+        >
+          <ToggleRow
+            label="今日任务提醒"
+            checked={notifications.taskReminder}
+            onChange={(v) => setNotifications({ taskReminder: v })}
+          />
+          <ToggleRow
+            label="诊断完成通知"
+            checked={notifications.diagnosisReady}
+            onChange={(v) => setNotifications({ diagnosisReady: v })}
+          />
+          <ToggleRow
+            label="考试节点提醒"
+            checked={notifications.examDeadline}
+            onChange={(v) => setNotifications({ examDeadline: v })}
+          />
+          <ToggleRow
+            label="复习到期提醒"
+            checked={notifications.review}
+            onChange={(v) => setNotifications({ review: v })}
+          />
+          <ToggleRow
+            label="进步证据提醒"
+            checked={notifications.progress}
+            onChange={(v) => setNotifications({ progress: v })}
+          />
+          <ToggleRow
+            label="允许主动支持（可降频）"
+            checked={notifications.proactive}
+            onChange={(v) => setNotifications({ proactive: v })}
+          />
+        </InsetGroup>
 
-        <Card>
-          <p className="text-label-md text-muted">账号</p>
-          {me ? (
-            <p className="mt-xs text-body-md text-body">
-              {me.phone}
-              {me.nickname ? ` · ${me.nickname}` : ""}
-            </p>
-          ) : (
-            <p className="mt-xs text-body-md text-body">
-              本机模式（未登录）——数据只存在这台设备上。
-            </p>
-          )}
-          <div className="mt-md flex flex-wrap gap-md">
+        <InsetGroup
+          header="账号"
+          footer={notifPerm === "已拒绝"
+            ? "系统已拒绝通知。想恢复请在浏览器站点设置里重新允许；提醒仍会出现在应用内。"
+            : undefined}
+        >
+          <ListRow
+            title={me ? `${me.phone}${me.nickname ? ` · ${me.nickname}` : ""}` : "本机模式（未登录）——数据只存在这台设备上。"}
+          />
+          <ListRow>
+            <div className="flex flex-wrap gap-md">
             {(["wechat", "apple"] as const).map((provider) => {
               const linked = linkedProviders.includes(provider);
               return (
@@ -265,8 +257,10 @@ export default function MePage() {
                 </Button>
               );
             })}
-          </div>
-          <div className="mt-md flex flex-wrap gap-md">
+            </div>
+          </ListRow>
+          <ListRow>
+            <div className="flex flex-wrap gap-md">
             {me ? (
               <Button
                 variant="tertiary"
@@ -300,35 +294,16 @@ export default function MePage() {
             >
               通知权限：{notifPerm}
             </Button>
-          </div>
-          {notifPerm === "已拒绝" ? (
-            <p className="mt-sm text-caption text-muted">
-              系统已拒绝通知。想恢复请在浏览器站点设置里重新允许；提醒仍会出现在应用内。
-            </p>
-          ) : null}
-        </Card>
+            </div>
+          </ListRow>
+        </InsetGroup>
 
-        <Card>
-          <p className="text-label-md text-muted">外观</p>
-          <div className="mt-sm flex items-center justify-between">
-            <span className="text-body-md text-body">夜间学习主题</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={night}
-              onClick={toggleNight}
-              className={`h-8 w-14 rounded-full border transition-colors ${
-                night ? "border-primary bg-primary" : "border-border-strong bg-surface-strong"
-              }`}
-            >
-              <span
-                className={`block h-6 w-6 rounded-full bg-surface transition-transform ${
-                  night ? "translate-x-7" : "translate-x-1"
-                }`}
-              />
-            </button>
-          </div>
-        </Card>
+        <InsetGroup header="外观">
+          <ListRow
+            title="夜间学习主题"
+            trailing={<Switch checked={night} label="夜间学习主题" onChange={toggleNight} />}
+          />
+        </InsetGroup>
 
         <Card>
           <p className="text-label-md text-muted">数据与隐私</p>
@@ -357,24 +332,13 @@ export default function MePage() {
             </div>
           </div>
           {/* F0329 个性化开关 */}
-          <div className="mt-md flex items-center justify-between">
+          <div className="mt-md flex items-center justify-between gap-md">
             <span className="text-body-sm text-body">基于学习行为的个性化推荐（F0329）</span>
-            <button
-              type="button"
-              role="switch"
-              aria-label="基于学习行为的个性化推荐（F0329）"
-              aria-checked={privacy.personalization}
-              onClick={() => setPrivacy({ personalization: !privacy.personalization })}
-              className={`h-7 w-12 rounded-full border transition-colors ${
-                privacy.personalization ? "border-primary bg-primary" : "border-border-strong bg-surface-strong"
-              }`}
-            >
-              <span
-                className={`block h-5 w-5 rounded-full bg-surface transition-transform ${
-                  privacy.personalization ? "translate-x-6" : "translate-x-0.5"
-                }`}
-              />
-            </button>
+            <Switch
+              checked={privacy.personalization}
+              label="基于学习行为的个性化推荐（F0329）"
+              onChange={(personalization) => setPrivacy({ personalization })}
+            />
           </div>
           {privacy.personalization ? null : (
             <p className="mt-xs text-caption text-muted-soft">
@@ -455,15 +419,15 @@ export default function MePage() {
           </div>
         </Card>
 
-        <Link
-          href="/membership"
-          className="flex items-center justify-between rounded-lg border border-border bg-surface px-lg py-md"
-        >
-          <span className="text-body-md text-ink">订阅与权益</span>
-          <span className="text-caption text-muted">
-            {membership.plan === "free" ? "免费版 ›" : "见岸 Pro ›"}
-          </span>
-        </Link>
+        <InsetGroup header="更多">
+          <Link href="/membership" className="block">
+            <ListRow
+              interactive
+              title="订阅与权益"
+              trailing={<><span className="text-caption text-muted">{membership.plan === "free" ? "免费版" : "见岸 Pro"}</span><RowChevron /></>}
+            />
+          </Link>
+        </InsetGroup>
       </div>
     </main>
   );
@@ -505,24 +469,9 @@ function ToggleRow({
   onChange: (v: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-body-md text-body">{label}</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        onClick={() => onChange(!checked)}
-        className={`h-8 w-14 rounded-full border transition-colors ${
-          checked ? "border-primary bg-primary" : "border-border-strong bg-surface-strong"
-        }`}
-      >
-        <span
-          className={`block h-6 w-6 rounded-full bg-surface transition-transform ${
-            checked ? "translate-x-7" : "translate-x-1"
-          }`}
-        />
-      </button>
-    </div>
+    <ListRow
+      title={label}
+      trailing={<Switch checked={checked} label={label} onChange={onChange} />}
+    />
   );
 }

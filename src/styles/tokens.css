@@ -13,8 +13,8 @@
   --ja-color-dawn-soft: #F4E8D9;
   --ja-color-ink: #122B2F;
   --ja-color-body: #34484B;
-  --ja-color-muted: #687A7D;
-  --ja-color-muted-soft: #96A5A7;
+  --ja-color-muted: #4A5E61;
+  --ja-color-muted-soft: #5E7174;
   --ja-color-canvas: #F7F9F8;
   --ja-color-canvas-warm: #FAF8F4;
   --ja-color-surface: #FFFFFF;
@@ -34,6 +34,13 @@
   --ja-color-on-dark: #F8FBFA;
   --ja-color-scrim: #0B1B1E;
   --ja-color-focus-ring: #4E8E91;
+  --ja-color-separator: #E6ECE9;
+  --ja-color-separator-opaque: #EDF2F0;
+  --ja-color-canvas-grouped: #F1F5F3;
+  --ja-color-material-nav: rgba(247,249,248,0.86);
+  --ja-color-material-sheet: rgba(255,255,255,0.92);
+  --ja-color-material-fill: rgba(18,43,47,0.045);
+  --ja-color-material-fill-strong: rgba(18,43,47,0.075);
 
   /* typography */
   --ja-font-ui: Inter Variable, PingFang SC, HarmonyOS Sans SC, Noto Sans SC, system-ui, sans-serif;
@@ -132,6 +139,9 @@
   --ja-space-margin-mobile: 20px;
   --ja-space-margin-tablet: 32px;
   --ja-space-margin-desktop: 48px;
+  --ja-space-separator-inset: 16px;
+  --ja-space-group-gap: 24px;
+  --ja-space-row-min: 44px;
 
   --ja-duration-instant: 80ms;
   --ja-duration-feedback: 120ms;
@@ -152,6 +162,11 @@
   --ja-elevation-lift-sm: 0 1px 2px rgba(18,43,47,0.04), 0 8px 24px rgba(18,43,47,0.05);
   --ja-elevation-lift-md: 0 2px 6px rgba(18,43,47,0.06), 0 18px 48px rgba(18,43,47,0.08);
   --ja-elevation-lift-focus: 0 10px 36px rgba(43,99,103,0.12), 0 1px 0 rgba(255,255,255,0.7) inset;
+  --ja-elevation-card-rest: 0 1px 3px rgba(18,43,47,0.03), 0 8px 24px rgba(18,43,47,0.03);
+  --ja-elevation-card-pressed: inset 0 1px 3px rgba(18,43,47,0.07);
+  --ja-elevation-card-raised: 0 2px 8px rgba(18,43,47,0.05), 0 16px 40px rgba(18,43,47,0.07);
+  --ja-elevation-nav-material: 0 -1px 0 rgba(18,43,47,0.04), 0 -4px 16px rgba(18,43,47,0.03);
+  --ja-elevation-sheet-material: 0 -2px 12px rgba(18,43,47,0.06), 0 -12px 32px rgba(18,43,47,0.08);
 
   --ja-touch-min-touch: 44px;
   --ja-touch-preferred-touch: 48px;
@@ -184,7 +199,7 @@
   --ja-color-surface-strong: #243234;
   --ja-color-border: #2B3A3C;
   --ja-color-border-strong: #3D4C4E;
-  --ja-color-muted-soft: #6F7F7C;
+  --ja-color-muted-soft: #859694;
   --ja-color-success: #79B295;
   --ja-color-success-soft: #20322A;
   --ja-color-warning: #CDA06B;
@@ -197,4 +212,11 @@
   --ja-color-on-dark: #F8FBFA;
   --ja-color-scrim: #04080A;
   --ja-color-focus-ring: #85BDB8;
+  --ja-color-separator: #202C2E;
+  --ja-color-separator-opaque: #232F31;
+  --ja-color-canvas-grouped: #0C1214;
+  --ja-color-material-nav: rgba(16,23,25,0.86);
+  --ja-color-material-sheet: rgba(22,32,35,0.92);
+  --ja-color-material-fill: rgba(234,241,239,0.06);
+  --ja-color-material-fill-strong: rgba(234,241,239,0.10);
 }

@@ -15,8 +15,8 @@ export const colors = {
   "dawn-soft": "#F4E8D9",
   "ink": "#122B2F",
   "body": "#34484B",
-  "muted": "#687A7D",
-  "muted-soft": "#96A5A7",
+  "muted": "#4A5E61",
+  "muted-soft": "#5E7174",
   "canvas": "#F7F9F8",
   "canvas-warm": "#FAF8F4",
   "surface": "#FFFFFF",
@@ -36,6 +36,13 @@ export const colors = {
   "on-dark": "#F8FBFA",
   "scrim": "#0B1B1E",
   "focus-ring": "#4E8E91",
+  "separator": "#E6ECE9",
+  "separator-opaque": "#EDF2F0",
+  "canvas-grouped": "#F1F5F3",
+  "material-nav": "rgba(247,249,248,0.86)",
+  "material-sheet": "rgba(255,255,255,0.92)",
+  "material-fill": "rgba(18,43,47,0.045)",
+  "material-fill-strong": "rgba(18,43,47,0.075)",
 } as const;
 
 export const nightColors = {
@@ -57,7 +64,7 @@ export const nightColors = {
   "surface-strong": "#243234",
   "border": "#2B3A3C",
   "border-strong": "#3D4C4E",
-  "muted-soft": "#6F7F7C",
+  "muted-soft": "#859694",
   "success": "#79B295",
   "success-soft": "#20322A",
   "warning": "#CDA06B",
@@ -70,6 +77,13 @@ export const nightColors = {
   "on-dark": "#F8FBFA",
   "scrim": "#04080A",
   "focus-ring": "#85BDB8",
+  "separator": "#202C2E",
+  "separator-opaque": "#232F31",
+  "canvas-grouped": "#0C1214",
+  "material-nav": "rgba(16,23,25,0.86)",
+  "material-sheet": "rgba(22,32,35,0.92)",
+  "material-fill": "rgba(234,241,239,0.06)",
+  "material-fill-strong": "rgba(234,241,239,0.10)",
 } as const;
 
 export interface TypographyToken {
@@ -230,6 +244,9 @@ export const spacing = {
   "margin-mobile": 20,
   "margin-tablet": 32,
   "margin-desktop": 48,
+  "separator-inset": 16,
+  "group-gap": 24,
+  "row-min": 44,
 } as const;
 
 export const duration = {
@@ -265,6 +282,11 @@ export const elevation = {
   "lift-sm": "0 1px 2px rgba(18,43,47,0.04), 0 8px 24px rgba(18,43,47,0.05)",
   "lift-md": "0 2px 6px rgba(18,43,47,0.06), 0 18px 48px rgba(18,43,47,0.08)",
   "lift-focus": "0 10px 36px rgba(43,99,103,0.12), 0 1px 0 rgba(255,255,255,0.7) inset",
+  "card-rest": "0 1px 3px rgba(18,43,47,0.03), 0 8px 24px rgba(18,43,47,0.03)",
+  "card-pressed": "inset 0 1px 3px rgba(18,43,47,0.07)",
+  "card-raised": "0 2px 8px rgba(18,43,47,0.05), 0 16px 40px rgba(18,43,47,0.07)",
+  "nav-material": "0 -1px 0 rgba(18,43,47,0.04), 0 -4px 16px rgba(18,43,47,0.03)",
+  "sheet-material": "0 -2px 12px rgba(18,43,47,0.06), 0 -12px 32px rgba(18,43,47,0.08)",
 } as const;
 
 export const interaction = {

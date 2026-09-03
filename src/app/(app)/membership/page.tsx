@@ -21,19 +21,33 @@ const BENEFITS: Array<{ name: string; free: string; pro: string }> = [
   { name: "高级趋势", free: "总分与模块趋势", pro: "时间结构 / 稳定性分析" },
 ];
 
+/** F0339 客服补偿记录（独立类型，避免在 effect 内引用 state 造成依赖回环） */
+interface BonusRecord {
+  kind: string;
+  amount: number;
+  reason: string;
+  at: string;
+}
+
+interface BonusState {
+  bonusDays: number;
+  bonusQuota: number;
+  records: BonusRecord[];
+}
+
 export default function MembershipPage() {
   const { membership, purchaseMembership, restorePurchase, requestRefund } = useProfileStore();
   const [order, setOrder] = useState<"idle" | "处理中" | "成功" | "失败">("idle");
   const [plan, setPlan] = useState<"pro-monthly" | "pro-yearly">("pro-monthly");
   // F0339：客服发放的补偿必须真实参与额度/到期计算，并在用户侧可见
-  const [bonus, setBonus] = useState<{ bonusDays: number; bonusQuota: number; records: Array<{ kind: string; amount: number; reason: string; at: string }> }>({ bonusDays: 0, bonusQuota: 0, records: [] });
+  const [bonus, setBonus] = useState<BonusState>({ bonusDays: 0, bonusQuota: 0, records: [] });
   const effective = effectiveMembership(membership, bonus);
   useEffect(() => {
     const token = getToken();
     if (!token) return;
     void fetch("/api/membership/entitlements", { headers: { authorization: `Bearer ${token}` } })
       .then((r) => r.json())
-      .then((d: { ok: boolean; bonusDays?: number; bonusQuota?: number; records?: typeof bonus.records }) => {
+      .then((d: { ok: boolean } & Partial<BonusState>) => {
         if (d.ok) setBonus({ bonusDays: d.bonusDays ?? 0, bonusQuota: d.bonusQuota ?? 0, records: d.records ?? [] });
       })
       .catch(() => undefined);

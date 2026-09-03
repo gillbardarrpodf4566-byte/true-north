@@ -382,6 +382,8 @@ export interface PositionRow {
   source_name: string;
   source_file: string;
   source_updated_at: string;
+  /** verified = 后台导入的正式职位表；simulated = 演示种子，不得作为报名依据 */
+  source_origin: "verified" | "simulated";
 }
 
 export function listPositions(): PositionRow[] {
@@ -453,16 +455,16 @@ export function upsertPositions(
   const ins = getDb().prepare(
     `INSERT INTO job_positions
      (qid, name, department, region, unit_level, recruiting, min_education, major_categories,
-      political_requirement, requires_grassroots, fresh_only, history, source_name, source_file, source_updated_at)
+      political_requirement, requires_grassroots, fresh_only, history, source_name, source_file, source_updated_at, source_origin)
      VALUES (@qid, @name, @department, @region, @unit_level, @recruiting, @min_education, @major_categories,
-      @political_requirement, @requires_grassroots, @fresh_only, @history, @source_name, @source_file, @source_updated_at)
+      @political_requirement, @requires_grassroots, @fresh_only, @history, @source_name, @source_file, @source_updated_at, @source_origin)
      ON CONFLICT(qid) DO UPDATE SET
       name=excluded.name, department=excluded.department, region=excluded.region,
       unit_level=excluded.unit_level, recruiting=excluded.recruiting, min_education=excluded.min_education,
       major_categories=excluded.major_categories, political_requirement=excluded.political_requirement,
       requires_grassroots=excluded.requires_grassroots, fresh_only=excluded.fresh_only,
       history=excluded.history, source_name=excluded.source_name, source_file=excluded.source_file,
-      source_updated_at=excluded.source_updated_at`,
+      source_updated_at=excluded.source_updated_at, source_origin=excluded.source_origin`,
   );
   rows.forEach((r, i) => {
     const get = (k: string): string => String(r[k] ?? "").trim();
@@ -503,6 +505,8 @@ export function upsertPositions(
       source_name: get("sourceName"),
       source_file: get("sourceFile"),
       source_updated_at: updatedAt,
+      // 后台导入的正式职位表才标 verified；演示种子在 seedIfEmpty 中标 simulated。
+      source_origin: "verified",
     });
     inserted += 1;
   });

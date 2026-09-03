@@ -121,7 +121,8 @@ const NIGHT_DERIVED: Record<string, string> = {
   "surface-strong": "#243234",
   border: "#2B3A3C",
   "border-strong": "#3D4C4E",
-  "muted-soft": "#6F7F7C",
+  // 夜间三级文本对比度提升至 ≥4.5:1（此前 #6F7F7C 仅 4.3:1）
+  "muted-soft": "#859694",
   success: "#79B295",
   "success-soft": "#20322A",
   warning: "#CDA06B",
@@ -134,6 +135,15 @@ const NIGHT_DERIVED: Record<string, string> = {
   "on-dark": "#F8FBFA",
   scrim: "#04080A",
   "focus-ring": "#85BDB8",
+  // §6.4 材质层夜间派生：分隔线用低亮度青绿灰，分组画布比 canvas 更深，
+  // 材质底以夜间 canvas/surface 为基色，控件填充改为浅色低透明度。
+  separator: "#202C2E",
+  "separator-opaque": "#232F31",
+  "canvas-grouped": "#0C1214",
+  "material-nav": "rgba(16,23,25,0.86)",
+  "material-sheet": "rgba(22,32,35,0.92)",
+  "material-fill": "rgba(234,241,239,0.06)",
+  "material-fill-strong": "rgba(234,241,239,0.10)",
 };
 
 const nightColors: Record<string, string> = { ...NIGHT_FROM_SPEC, ...NIGHT_DERIVED };

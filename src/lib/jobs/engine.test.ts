@@ -84,16 +84,18 @@ describe("软排序与分组（F0262–F0265/F0270）", () => {
   it("每个可报职位都有匹配理由与数据来源（F0265/F0270）", () => {
     for (const m of ms.filter((x) => x.verdict !== "不可报")) {
       expect(m.reasons.length).toBeGreaterThan(0);
-      expect(m.position.source.name).toContain("官方");
+      expect(m.position.source.name.trim().length).toBeGreaterThan(0);
       expect(m.position.source.updatedAt).not.toBe("");
     }
   });
 
-  it("演示种子职位必须标注为模拟来源，且更新时间不在未来", () => {
+  it("演示种子职位必须标注为模拟来源，不得冒充官方公告，且更新时间不在未来", () => {
     const today = new Date().toISOString().slice(0, 10);
     for (const position of SEED_POSITIONS) {
       expect(position.source.origin).toBe("simulated");
-      expect(position.source.name).toContain("演示数据");
+      // 模拟数据必须自我声明为演示用，且不得出现会被读成官方发布的措辞
+      expect(position.source.name).toContain("演示用");
+      expect(position.source.name).not.toContain("（官方）");
       expect(position.source.updatedAt <= today).toBe(true);
     }
   });

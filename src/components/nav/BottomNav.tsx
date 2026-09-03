@@ -3,6 +3,10 @@
 /**
  * BottomNav — §7.12：5 项（今日/训练/教练/进展/我的）、64px functional glass、
  * icon 20px + label 11px、active ink/primary + 轻 tint、教练不放大不悬浮（§20 Don't）。
+ *
+ * §6.3 材质：半透明底 + backdrop-blur 是功能性效果而非装饰——内容滚动会从栏下穿过，
+ * 模糊因此携带真实信息（下方还有内容）。顶边发丝线由 nav-material 阴影的 -1px 偏移承担，
+ * 不再叠加 border（elevation 只声明一次）。
  */
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -21,7 +25,7 @@ export function BottomNav() {
   return (
     <nav
       aria-label="主导航"
-      className="fixed inset-x-0 bottom-0 mx-auto flex h-16 max-w-[430px] items-stretch border-t border-border bg-[rgba(255,255,255,0.78)] backdrop-blur-md"
+      className="fixed inset-x-0 bottom-0 mx-auto flex h-16 max-w-[430px] items-stretch bg-material-nav shadow-nav-material backdrop-blur-xl"
       style={{ zIndex: zIndex.functional, paddingBottom: "env(safe-area-inset-bottom)" }}
     >
       {items.map(({ href, label, icon: Icon }) => {
@@ -31,8 +35,8 @@ export function BottomNav() {
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`flex flex-1 flex-col items-center justify-center gap-[2px] ${
-              active ? "text-primary" : "text-muted"
+            className={`flex flex-1 flex-col items-center justify-center gap-[2px] transition-colors duration-feedback ease-standard ${
+              active ? "text-primary" : "text-muted hover:text-body"
             }`}
           >
             <Icon active={active} />

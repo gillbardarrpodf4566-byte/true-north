@@ -8,6 +8,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
+import { InsetGroup, ListRow, RowChevron } from "@/components/ui/List";
 import { EmptyState } from "@/components/ui/StateViews";
 import { useProfileStore } from "@/lib/profile/store";
 import { MODULES } from "@/lib/profile/types";
@@ -29,11 +30,21 @@ export default function TrainPage() {
       <h1 className="text-headline-xl text-ink">训练</h1>
 
       {/* V1 训练模式（F0126/F0129）：推荐与自由选择并存 */}
-      <Card className="mt-lg" tone="faint" radius="lg">
+      <Card className="mt-lg" radius="lg">
         <p className="text-label-md text-muted">快速组一组题</p>
         <div className="mt-sm flex flex-wrap gap-sm" role="group" aria-label="训练模式">
           {(["专项", "混合", "复习", "速度"] as const).map((m) => (
-            <button key={m} type="button" aria-pressed={mixMode === m} onClick={() => setMixMode(m)} className={`rounded-full border px-md py-sm text-label-md ${mixMode === m ? "border-primary bg-primary-faint text-primary-active" : "border-border bg-surface text-muted"}`}>
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mixMode === m}
+              onClick={() => setMixMode(m)}
+              className={`rounded-full px-md py-sm text-label-md transition-colors duration-feedback ease-standard ${
+                mixMode === m
+                  ? "bg-primary-faint text-primary-active"
+                  : "bg-surface-soft text-muted"
+              }`}
+            >
               {m === "混合" ? "混合练习" : m === "复习" ? "错题复测" : m === "速度" ? "速度训练" : "专项练习"}
             </button>
           ))}
@@ -50,14 +61,23 @@ export default function TrainPage() {
       <div className="mt-md">
         <button type="button" onClick={() => setShowMethods((v) => !v)} aria-expanded={showMethods} className="text-label-md text-primary">方法卡（关键解题策略）{showMethods ? "收起" : "展开"}</button>
         {showMethods ? (
-          <Card className="mt-sm" padding="dense">
-            <ul className="space-y-xs text-body-sm text-body">
-              <li>资料分析：先读问题，再回材料定位；先估算量级，再精算。</li>
-              <li>判断推理：先写出充分/必要条件方向，避免把逆命题当原命题。</li>
-              <li>言语理解：先找转折/总结句，再判断选项是否扩大或缩小范围。</li>
-            </ul>
-            <p className="mt-sm text-caption text-muted">方法卡只给路径提示，不代替你完成题目。</p>
-          </Card>
+          <InsetGroup
+            className="mt-sm"
+            footer="方法卡只给路径提示，不代替你完成题目。"
+          >
+            <ListRow
+              fullSeparator
+              title="资料分析：先读问题，再回材料定位；先估算量级，再精算。"
+            />
+            <ListRow
+              fullSeparator
+              title="判断推理：先写出充分/必要条件方向，避免把逆命题当原命题。"
+            />
+            <ListRow
+              fullSeparator
+              title="言语理解：先找转折/总结句，再判断选项是否扩大或缩小范围。"
+            />
+          </InsetGroup>
         ) : null}
       </div>
 
@@ -75,8 +95,8 @@ export default function TrainPage() {
           </div>
         ) : (
           <div className="mt-md space-y-md">
-            {pending.map((t) => (
-              <Card key={t.id} tone="faint" radius="lg">
+            {pending.map((t, index) => (
+              <Card key={t.id} tone={index === 0 ? "faint" : "surface"} radius="lg">
                 <div className="flex items-start justify-between gap-md">
                   <div>
                     <p className="text-title-md text-ink">{t.title}</p>
@@ -101,49 +121,57 @@ export default function TrainPage() {
       {unfinished.length > 0 ? (
         <section className="mt-xl">
           <h2 className="text-title-lg text-ink">继续上次</h2>
-          <div className="mt-md space-y-md">
+          <InsetGroup className="mt-md">
             {unfinished.map((s) => (
-              <Card key={s.id} as="div">
-                <p className="text-body-md text-ink">
-                  {s.moduleId} · 已答 {Object.keys(s.answers).length} 题（已自动保存）
-                </p>
-                <Link href={`/train/session/${s.id}`} className="mt-sm inline-block">
-                  <Button variant="secondary">继续训练</Button>
-                </Link>
-              </Card>
+              <ListRow
+                key={s.id}
+                title={`${s.moduleId} · 已答 ${Object.keys(s.answers).length} 题（已自动保存）`}
+                trailing={
+                  <Link href={`/train/session/${s.id}`}>
+                    <Button variant="secondary">继续训练</Button>
+                  </Link>
+                }
+              />
             ))}
-          </div>
+          </InsetGroup>
         </section>
       ) : null}
 
       {/* 专项能力（F0125 自主选择，高密度列表） */}
       <section className="mt-xl">
         <h2 className="text-title-lg text-ink">专项训练</h2>
-        <ul className="mt-md divide-y divide-border rounded-lg border border-border bg-surface">
+        <InsetGroup className="mt-md">
           {MODULES.map((m) => (
-            <li key={m}>
+            <ListRow key={m} interactive className="p-0">
               <Link
                 href={`/train/session/free-${m}`}
-                className="flex items-center justify-between px-lg py-md"
+                className="flex min-h-row-min w-full items-center justify-between gap-md px-base py-md"
               >
                 <span className="text-body-md text-ink">{m}</span>
-                <span className="text-caption text-muted">{seedQuestions(m).length} 题题组 ›</span>
+                <span className="flex shrink-0 items-center gap-sm text-caption text-muted">
+                  {seedQuestions(m).length} 题题组
+                  <RowChevron />
+                </span>
               </Link>
-            </li>
+            </ListRow>
           ))}
-        </ul>
+        </InsetGroup>
       </section>
 
       {/* 申论（V1 CL-05） */}
       <section className="mt-xl">
         <h2 className="text-title-lg text-ink">申论</h2>
-        <Link
-          href="/essay"
-          className="mt-md flex items-center justify-between rounded-lg border border-border bg-surface px-lg py-md"
-        >
-          <span className="text-body-md text-ink">申论教练（概括 / 对策 / 公文 / 大作文）</span>
-          <span className="text-caption text-muted">›</span>
-        </Link>
+        <InsetGroup className="mt-md">
+          <ListRow interactive className="p-0">
+            <Link
+              href="/essay"
+              className="flex min-h-row-min w-full items-center justify-between gap-md px-base py-md"
+            >
+              <span className="text-body-md text-ink">申论教练（概括 / 对策 / 公文 / 大作文）</span>
+              <RowChevron />
+            </Link>
+          </ListRow>
+        </InsetGroup>
       </section>
 
       {/* 错题修复（CL-03 step3-5） */}
@@ -152,13 +180,17 @@ export default function TrainPage() {
           <h2 className="text-title-lg text-ink">错题修复</h2>
           {wrongBook.length > 0 ? <Chip tone="warning">{wrongBook.length} 题待处理</Chip> : null}
         </div>
-        <Link
-          href="/train/wrongbook"
-          className="mt-md flex items-center justify-between rounded-lg border border-border bg-surface px-lg py-md"
-        >
-          <span className="text-body-md text-ink">错题本与错因确认</span>
-          <span className="text-caption text-muted">›</span>
-        </Link>
+        <InsetGroup className="mt-md">
+          <ListRow interactive className="p-0">
+            <Link
+              href="/train/wrongbook"
+              className="flex min-h-row-min w-full items-center justify-between gap-md px-base py-md"
+            >
+              <span className="text-body-md text-ink">错题本与错因确认</span>
+              <RowChevron />
+            </Link>
+          </ListRow>
+        </InsetGroup>
       </section>
     </main>
   );

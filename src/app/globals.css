@@ -8,12 +8,58 @@
   }
 
   body {
-    background-color: var(--ja-color-canvas);
+    /* §6.3 app-shell 材质：canvas-grouped 让白卡靠 card-rest 阴影分离，而非叠边框 */
+    background-color: var(--ja-color-canvas-grouped);
     color: var(--ja-color-ink);
     font-family: var(--ja-font-ui);
     font-size: var(--ja-font-size-body-md);
     line-height: var(--ja-line-height-body-md);
     -webkit-font-smoothing: antialiased;
+    /* 中西文混排的标点挤压与字距优化（§4 编辑型排版） */
+    text-rendering: optimizeLegibility;
+    font-kerning: normal;
+    font-feature-settings: "kern" 1;
+  }
+
+  /* §6.5 浏览器外观归入设计系统：选区、光标、下划线偏移不留平台默认值 */
+  ::selection {
+    background-color: var(--ja-color-primary-soft);
+    color: var(--ja-color-ink);
+  }
+
+  :where(input, textarea) {
+    caret-color: var(--ja-color-primary);
+  }
+
+  :where(a, .ja-underline) {
+    text-underline-offset: 0.2em;
+    text-decoration-thickness: 1px;
+  }
+
+  /* 滚动条：细轨 + 材质滑块，与 card-rest 同源不透明度 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ja-color-border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: var(--ja-space-sm);
+    height: var(--ja-space-sm);
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--ja-color-border-strong);
+    border-radius: var(--ja-radius-full);
+    border: var(--ja-space-micro) solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--ja-color-muted-soft);
   }
 
   :focus-visible {
@@ -30,5 +76,45 @@
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
     }
+  }
+}
+
+/* §5.7 inset grouped list — Apple 工艺骨架。
+ * 分隔线由 ::after 绘制：左内缩对齐行内文本，末行自动不显示。
+ * 组容器裁剪圆角，行按压反馈用材质填充而非缩放（列表内缩放会抖）。 */
+@layer components {
+  .ja-group {
+    background-color: var(--ja-color-surface);
+    border-radius: var(--ja-radius-sm);
+    box-shadow: var(--ja-elevation-card-rest);
+    overflow: hidden;
+  }
+
+  .ja-row {
+    position: relative;
+    min-height: var(--ja-space-row-min);
+  }
+
+  .ja-row:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: var(--ja-space-separator-inset);
+    right: 0;
+    height: 1px;
+    background-color: var(--ja-color-separator);
+  }
+
+  /* 无内缩变体：分隔线贯穿整行（用于纯文本段落组） */
+  .ja-row-full:not(:last-child)::after {
+    left: 0;
+  }
+
+  .ja-row-press {
+    transition: background-color var(--ja-duration-feedback) var(--ja-easing-easing-standard);
+  }
+
+  .ja-row-press:active {
+    background-color: var(--ja-color-material-fill);
   }
 }

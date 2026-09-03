@@ -88,10 +88,60 @@ GAP-15 的修复没有直接采信自查，而是再派三组独立复核逐项�
 - **F0381 聚类细分在生产不可达**：如实标注——当前 Provider 为确定性引擎，候选不携带
   模型/Prompt 版本，聚类仅按类型；接入真实模型后自动细分，不假装功能已可用。
 
+## GAP-17 · UI 设计升级至 Apple 工艺（2026-09-02）
+
+**方向决策**：精修 Quiet Horizon 身份（保留 #2B6367 青绿、雾白画布、地平线隐喻），
+不替换视觉语言，只把材质/排版/动效/密度提升到 Apple 水准。DESIGN.md 扩充精修章节而非整份替换。
+
+**范围**：五个核心 Tab（今日/诊断/训练/进展/我的），激进路线一次重构。
+
+### 工艺升级
+
+- **材质层次**：BottomNav 用 `material-nav` + backdrop-blur（内容从栏下穿过，模糊是功能性而非装饰）；
+  Card 默认改为「实色填充 + `card-rest` 双层柔阴影」，不再叠加边框；
+  EvidenceCard 由「边框卡套小卡」改为单一材质面 + inset rows（nested card 属禁止项）。
+- **排版**：四级文本阶梯全部达 WCAG AA。修复前 `muted` 仅 4.3:1、`muted-soft` 仅 2.6:1，
+  而大量元数据文本正在使用它们；现为 ink 13.5:1 / body 8.8:1 / muted 6.2:1 / muted-soft 4.7:1。
+  倒计时与统计数据改用 `tabular-nums` 防止数字变化时抖动。
+- **密度分组**：新增 §5.7 Inset Grouped List 规范与 `InsetGroup`/`ListRow`/`RowChevron` 组件；
+  分隔线左内缩 16px 对齐文本、末行自动不显示、行按压用材质填充而非缩放（列表内缩放会抖）。
+- **色彩克制**：shell 背景改 `canvas-grouped`——原 `canvas` 与白卡对比仅 **1.03:1**（几乎不可见），
+  这正是每张卡都被迫加边框的根因；改后由阴影承担分离，符合「elevation 只声明一次」。
+- **动效**：Horizon Focus 的地平线展开由动画 `width` 改为 `scaleX`，走合成层不触发重排。
+- **移除装饰性 eyebrow**：诊断页与焦点卡的 `text-micro` 小标签位于标题之上，属明确禁止项；
+  语义改由 `aria-label` 与标题自身层级承载。
+
+### 顺带修复的真实缺陷
+
+- **演示数据冒充官方**：种子职位源名写作「2026 国考职位表（官方）·演示数据」，
+  且 `/api/jobs/match` 靠 `source_name.includes("演示数据")` 推断可信度——改名即可让演示数据变成 verified，
+  用户侧的「不能作为报名依据」警示随之消失。现改为 `job_positions.source_origin` 显式列，
+  种子写 simulated、后台导入写 verified，并为既有库提供按特征回填的迁移；测试反转为**禁止**模拟数据含「（官方）」。
+- **统一开关组件**：me/today 页原有三处重复实现且尺寸不一致（h-8/w-14 与 h-7/w-12），合并为 `Switch`。
+- **硬编码清理**：BottomNav 的 `rgba(255,255,255,0.78)` 与 layout 的 `64px` 改用 token。
+
+### 验证证据
+
+```text
+pnpm tokens             ✅ colors 31→38 / spacing 16→19 / elevation 5→10
+pnpm check              ✅ typecheck + lint + 192 单测 + token 漂移（新增 4 项 WCAG 对比度守卫）
+pnpm build              ✅ production build
+Playwright --workers=1  ✅ 24/24 E2E（无重试）
+detect.mjs              ✅ 零发现
+```
+
+### 未完成项（诚实标注）
+
+- **视觉验收未完成**：五个 Tab 的截图已生成，但本会话图像读取不稳定，
+  **无法凭截图断言「视觉上达到 Apple 水准」**。机械检测、对比度守卫与功能测试全绿，人眼盲测缺失。
+- **夜间主题未实机验证**：夜间 token 已生成并通过对比度断言，但未在真机深色环境验收材质效果。
+- **仅覆盖 5/24 个界面**：申论/选岗/模考/消息/会员/错题本/后台等仍用旧材质（border Card），待后续铺开。
+- **真机性能未验证**：backdrop-blur 与阴影在低端机的帧率影响未测（§8.20）。
+
 ## V1 完成状态
 
 - V1 155 条功能范围已实现；7 个 FAIL 与全部主要 WEAK 已修复，且修复本身经过独立复核
   （GAP-14 → GAP-15 → GAP-16 三轮）。
-- 验证证据：`pnpm check`（单测 188 项）+ `pnpm build` + `pnpm audit --prod`（无已知漏洞）+ 串行 E2E 24/24 无重试。
+- 验证证据：`pnpm check`（单测 192 项）+ `pnpm build` + `pnpm audit --prod`（无已知漏洞）+ 串行 E2E 24/24 无重试。
 - 仍为 mock/待接入：AI 模型推理、真实短信下发、第三方登录 SDK、支付与退款渠道、官方职位表同步。
 - V2 / V3 的 62 条仍是未来路线图，不应被 V1 的“完成”状态覆盖。

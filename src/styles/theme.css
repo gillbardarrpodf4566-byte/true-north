@@ -33,6 +33,13 @@
   --color-on-dark: var(--ja-color-on-dark);
   --color-scrim: var(--ja-color-scrim);
   --color-focus-ring: var(--ja-color-focus-ring);
+  --color-separator: var(--ja-color-separator);
+  --color-separator-opaque: var(--ja-color-separator-opaque);
+  --color-canvas-grouped: var(--ja-color-canvas-grouped);
+  --color-material-nav: var(--ja-color-material-nav);
+  --color-material-sheet: var(--ja-color-material-sheet);
+  --color-material-fill: var(--ja-color-material-fill);
+  --color-material-fill-strong: var(--ja-color-material-fill-strong);
 
   --radius-none: var(--ja-radius-none);
   --radius-xs: var(--ja-radius-xs);
@@ -59,12 +66,20 @@
   --spacing-margin-mobile: var(--ja-space-margin-mobile);
   --spacing-margin-tablet: var(--ja-space-margin-tablet);
   --spacing-margin-desktop: var(--ja-space-margin-desktop);
+  --spacing-separator-inset: var(--ja-space-separator-inset);
+  --spacing-group-gap: var(--ja-space-group-gap);
+  --spacing-row-min: var(--ja-space-row-min);
 
   --shadow-flat: var(--ja-elevation-flat);
   --shadow-hairline: var(--ja-elevation-hairline);
   --shadow-lift-sm: var(--ja-elevation-lift-sm);
   --shadow-lift-md: var(--ja-elevation-lift-md);
   --shadow-lift-focus: var(--ja-elevation-lift-focus);
+  --shadow-card-rest: var(--ja-elevation-card-rest);
+  --shadow-card-pressed: var(--ja-elevation-card-pressed);
+  --shadow-card-raised: var(--ja-elevation-card-raised);
+  --shadow-nav-material: var(--ja-elevation-nav-material);
+  --shadow-sheet-material: var(--ja-elevation-sheet-material);
 
   --duration-instant: var(--ja-duration-instant);
   --duration-feedback: var(--ja-duration-feedback);
